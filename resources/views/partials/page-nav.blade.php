@@ -13,9 +13,9 @@
     @view-transition { navigation: auto; }
     ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .16s; }
     .pn-overlay { position: fixed; z-index: 60; overflow: hidden; padding: 24px; pointer-events: none;
-        background: rgba(248, 250, 252, .82); backdrop-filter: blur(1px); opacity: 0; transition: opacity .12s; }
+        background: #f8fafc; opacity: 0; transition: opacity .15s ease-out; }
     .pn-overlay.pn-show { opacity: 1; }
-    html.dark .pn-overlay { background: rgba(2, 6, 23, .78); }
+    html.dark .pn-overlay { background: #020617; }
     .pn-bar { position: absolute; top: 0; left: 0; height: 3px; width: 30%; border-radius: 0 3px 3px 0;
         background: var(--color-primary, #CA8A04); animation: pn-bar 1.1s ease-in-out infinite; }
     @keyframes pn-bar { 0% { left: -30%; } 100% { left: 100%; } }
@@ -54,15 +54,33 @@
     window.__pageNavLoading = true;
 
     var SKIP = /\/(logout|auth|cron)(\/|$)|export|download|stream/i;
-    var overlay = null, safety = null;
+    var overlay = null, safety = null, pending = null;
 
     function hide() {
         clearTimeout(safety);
+        clearTimeout(pending);
         if (overlay) { overlay.remove(); overlay = null; }
     }
 
+    // The page's own background behind the content, so the old page is fully
+    // covered (no see-through mix of old table and skeleton).
+    function pageBackground(el) {
+        for (; el && el.nodeType === 1; el = el.parentElement) {
+            var bg = getComputedStyle(el).backgroundColor;
+            if (bg && bg !== 'transparent' && !/rgba\([^)]*,\s*0\)$/.test(bg)) return bg;
+        }
+        return '';
+    }
+
+    // Only for a page that takes a moment: a fast one just switches, no flicker.
     function show() {
         hide();
+        pending = setTimeout(reveal, 150);
+        // A link that turned out to be a file download never leaves the page.
+        safety = setTimeout(hide, 20000);
+    }
+
+    function reveal() {
         var target = document.querySelector('main') || document.body;
         var r = target.getBoundingClientRect();
         var top = Math.max(r.top, 0), left = Math.max(r.left, 0);
@@ -74,13 +92,13 @@
         overlay.setAttribute('role', 'status');
         overlay.setAttribute('aria-label', 'Loading page');
         overlay.style.cssText = 'top:' + top + 'px;left:' + left + 'px;width:' + width + 'px;height:' + height + 'px;';
+        var bg = pageBackground(target);
+        if (bg) overlay.style.background = bg;
         overlay.innerHTML = '<div class="pn-bar"></div><div class="pn-grid">'
             + '<div class="pn-card"></div><div class="pn-card"></div><div class="pn-card"></div><div class="pn-card"></div></div>'
             + '<div class="pn-block"></div><div class="pn-block pn-short"></div>';
         document.body.appendChild(overlay);
         requestAnimationFrame(function () { overlay && overlay.classList.add('pn-show'); });
-        // A link that turned out to be a file download never leaves the page.
-        safety = setTimeout(hide, 20000);
     }
 
     document.addEventListener('click', function (e) {
@@ -97,6 +115,29 @@
         if (url.hash && url.pathname === location.pathname && url.search === location.search) return;
         // Let the page's own handlers run first; skip if one took over the click.
         setTimeout(function () { if (!e.defaultPrevented) show(); }, 0);
+    });
+
+    // GET filter forms (team tabs, date Apply…) that reload the page — e.g.
+    // Data Management's ALL / PEAK.CO / M&J / MLC. Pages that already swap
+    // filters in place (app.js softRefresh) cancel the submit, so they're
+    // skipped. The clicked filter button turns active at once.
+    document.addEventListener('submit', function (e) {
+        var form = e.target;
+        if (!(form instanceof HTMLFormElement) || (form.method || 'get').toLowerCase() !== 'get') return;
+        if (form.target && form.target !== '_self') return;
+        if (form.closest('[data-no-nav-loading]') || SKIP.test(form.action || '')) return;
+        var btn = e.submitter;
+        setTimeout(function () {
+            if (e.defaultPrevented) return;
+            if (btn && btn.hasAttribute('data-filter-btn')) {
+                form.querySelectorAll('[data-filter-btn][name="' + btn.name + '"]').forEach(function (b) {
+                    var on = b === btn;
+                    ['bg-primary', 'text-white'].forEach(function (c) { b.classList.toggle(c, on); });
+                    ['bg-white', 'text-slate-500'].forEach(function (c) { b.classList.toggle(c, !on); });
+                });
+            }
+            show();
+        }, 0);
     });
 
     // Back/forward restores a cached page with the skeleton still on it.
