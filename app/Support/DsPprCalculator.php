@@ -79,18 +79,21 @@ class DsPprCalculator
      *  - Projected Sold = Projected Answered × Conversion Rate
      *    (customers expected to buy)
      *  - Expected Sales = Projected Sold × AOV
+     *  - Projected Net Income = Expected Sales × NI % (2026-11-17)
      *  The sheet shows #DIV/0! when a rate has no data; here it's 0. */
-    public const PROJECTION_KEYS = ['projected_answered', 'projected_sold', 'expected_sales'];
+    public const PROJECTION_KEYS = ['projected_answered', 'projected_sold', 'expected_sales', 'projected_net_income'];
 
     public static function projections(array $d): array
     {
         $answered = (float) ($d['excess_leads'] ?? 0) * (float) ($d['pickup_rate'] ?? 0);
         $sold = $answered * (float) ($d['conversion_rate'] ?? 0);
+        $expectedSales = $sold * (float) ($d['aov'] ?? 0);
 
         return [
-            'projected_answered' => $answered,
-            'projected_sold'     => $sold,
-            'expected_sales'     => $sold * (float) ($d['aov'] ?? 0),
+            'projected_answered'   => $answered,
+            'projected_sold'       => $sold,
+            'expected_sales'       => $expectedSales,
+            'projected_net_income' => $expectedSales * (float) ($d['ni_pct'] ?? 0),
         ];
     }
 
