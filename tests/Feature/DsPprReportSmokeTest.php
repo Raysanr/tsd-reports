@@ -44,6 +44,9 @@ class DsPprReportSmokeTest extends TestCase
         $response->assertOk();
         $response->assertSee(strtoupper($product->display_name));
         $response->assertSee('OVERALL TOTAL');
+        $response->assertSee('Projected Answered');
+        $response->assertSee('Projected Sold');
+        $response->assertSee('Expected Sales');
     }
 
     /** CSV-download + PNG-snapshot icons (explicit request, 2026-10-05)

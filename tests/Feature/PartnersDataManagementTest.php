@@ -210,7 +210,9 @@ class PartnersDataManagementTest extends TestCase
         $this->actingAs($this->admin());
 
         $this->get('/partners/dsppr?date_from=2026-10-05&date_to=2026-10-05')->assertOk()
-            ->assertSee('PEAKGLOW')->assertDontSee('data-row-key="tiktok"', false);
+            ->assertSee('PEAKGLOW')->assertDontSee('data-row-key="tiktok"', false)
+            ->assertSee('Projected Answered')->assertSee('Projected Sold')->assertSee('Expected Sales')
+            ->assertSee('data-out="expected_sales"', false);
         $this->get('/data/dsppr?date_from=2026-10-05&date_to=2026-10-05')->assertOk()->assertSee('data-row-key="tiktok"', false);
     }
 

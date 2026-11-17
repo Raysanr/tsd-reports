@@ -85,4 +85,83 @@ class ActualIncomeReportTest extends TestCase
         $this->assertSame('31,000.00', $m[1] ?? null);
         $this->assertSame(\App\Support\CostBreakdownVariant::BUDGET, \App\Support\CostBreakdownVariant::current());
     }
+
+    /** 2026-11-17: Number of Orders / Product Cost / Fulfillment Fee are
+     *  automated but editable on Actual Income. */
+    private function seedTwoUpsells(): array
+    {
+        $product = Product::first();
+        $tsa = TsaShift::create(['tsa_key' => 'JOANA', 'display_name' => 'Joana', 'team' => 'SH Naturals', 'active' => true]);
+        $date = today()->toDateString();
+        \App\Models\ProductCost::updateOrCreate(['variation' => '1 Clear Sight'], ['cost' => 30]);
+        \App\Models\ProductCost::updateOrCreate(['variation' => '2 Clear Sight'], ['cost' => 60]);
+        foreach (['1 Clear Sight', '2  clear sight'] as $i => $variation) {
+            Order::create([
+                'pancake_order_id' => "pc-{$i}", 'team' => 'SH Naturals', 'tsa_name' => 'JOANA',
+                'product' => $product->display_name, 'bundle_description' => $variation, 'is_upsell' => false, 'amount' => 1000, 'status_code' => 3,
+                'raw_tags' => ['UPSELL TSD - ' . $product->display_name],
+                'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
+            ]);
+        }
+
+        return [$product, $tsa, $date];
+    }
+
+    private function firstOut(string $html, string $key): ?string
+    {
+        preg_match('/data-out="' . $key . '"[^>]*>\s*([\d,.\-]+)/', $html, $m);
+
+        return $m[1] ?? null;
+    }
+
+    public function test_product_cost_is_automated_from_the_product_costs_list(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        [$product, $tsa, $date] = $this->seedTwoUpsells();
+
+        $html = $this->actingAs($admin)->get(route('data.actual-income', ['month' => substr($date, 0, 7)]))->assertOk()->getContent();
+
+        $this->assertSame('90.00', $this->firstOut($html, 'product_cost'));
+        $this->assertSame('2', $this->firstOut($html, 'number_of_orders'));
+        $this->assertSame('50.00', $this->firstOut($html, 'fulfillment_fee'));
+        // Editable inputs on the TSA product card, saving to Actual Income's own route.
+        $teamHtml = $this->get(route('data.actual-income', ['month' => substr($date, 0, 7), 'team' => 'sh-naturals']))->assertOk()->getContent();
+        $this->assertStringContainsString('data-field="product_cost" data-money="1" data-actual="1"', $teamHtml);
+        $this->assertStringContainsString('data-field="number_of_orders" data-actual="1"', $teamHtml);
+        $this->assertStringContainsString('data-field="fulfillment_fee" data-money="1" data-actual="1"', $teamHtml);
+        $this->get(route('data.actual-income', ['month' => substr($date, 0, 7), 'team' => 'all']));
+        $this->assertStringContainsString(route('data.actual-income.update-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => substr($date, 0, 7) . '-01']), $teamHtml);
+
+        // Expected Income keeps its own (typed) Product Cost.
+        $expected = $this->get(route('data.expected-income', ['date_from' => $date, 'date_to' => $date]))->assertOk()->getContent();
+        $this->assertSame('0.00', $this->firstOut($expected, 'product_cost'));
+    }
+
+    public function test_typed_values_override_the_automation_and_reach_the_rollups(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        [$product, $tsa, $date] = $this->seedTwoUpsells();
+        $url = route('data.actual-income.update-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => $date]);
+
+        $this->actingAs($admin)->patchJson($url, ['number_of_orders' => 5, 'product_cost' => 400, 'fulfillment_fee' => 10])->assertOk();
+
+        $html = $this->get(route('data.actual-income', ['month' => substr($date, 0, 7)]))->assertOk()->getContent();
+        $this->assertSame('5', $this->firstOut($html, 'number_of_orders'));
+        $this->assertSame('400.00', $this->firstOut($html, 'product_cost'));
+        $this->assertSame('10.00', $this->firstOut($html, 'fulfillment_fee'));
+        $teamHtml = $this->get(route('data.actual-income', ['month' => substr($date, 0, 7), 'team' => 'sh-naturals']))->assertOk()->getContent();
+        $this->assertStringContainsString('border-amber-500', $teamHtml);
+        $this->assertSame('5', $this->firstOut($teamHtml, 'number_of_orders'), 'team rollup includes the override');
+        $this->get(route('data.actual-income', ['month' => substr($date, 0, 7), 'team' => 'all']));
+
+        // Expected Income never sees Actual Income's overrides.
+        $expected = $this->get(route('data.expected-income', ['date_from' => $date, 'date_to' => $date]))->assertOk()->getContent();
+        $this->assertSame('2', $this->firstOut($expected, 'number_of_orders'));
+
+        // Clearing every field returns to automatic and removes the row.
+        $this->patchJson($url, ['number_of_orders' => null, 'product_cost' => null, 'fulfillment_fee' => null])->assertOk();
+        $this->assertSame(0, \App\Models\ActualIncomeOverride::count());
+        $html = $this->get(route('data.actual-income', ['month' => substr($date, 0, 7)]))->assertOk()->getContent();
+        $this->assertSame('90.00', $this->firstOut($html, 'product_cost'));
+    }
 }

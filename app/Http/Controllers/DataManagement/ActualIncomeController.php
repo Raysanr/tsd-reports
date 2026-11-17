@@ -61,4 +61,49 @@ class ActualIncomeController extends ExpectedIncomeController
             \App\Support\RequestMemo::flush();
         }
     }
+
+    /** Saves one product card's typed Number of Orders / Product Cost /
+     *  Fulfillment Fee (explicit request, 2026-11-17: "automated but
+     *  editable"). A blank value clears that override (back to automatic);
+     *  a card with no overrides left has its row deleted. Stored only in
+     *  actual_income_overrides — Expected Income never sees these. */
+    public function updateOverride(Request $request, \App\Models\Product $product, string $date, \App\Models\TsaShift $tsaShift)
+    {
+        abort_unless(preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1, 404);
+        // One override per TSA × product × month (Actual Income shows whole
+        // months), stored on the month's first day.
+        $date = substr($date, 0, 7) . '-01';
+        // One override per TSA × product × month (Actual Income shows whole
+        // months), stored on the month's first day.
+        $date = substr($date, 0, 7) . '-01';
+        $fields = \App\Models\ActualIncomeOverride::FIELDS;
+        if (\App\Support\DataSet::isPartners()) {
+            $fields = array_values(array_diff($fields, ['fulfillment_fee']));
+        }
+        $data = $request->validate(collect($fields)->mapWithKeys(fn ($f) => [$f => ['sometimes', 'nullable', 'numeric', 'min:0']])->all());
+
+        $override = \App\Models\ActualIncomeOverride::where('product_id', $product->id)->where('tsa_id', $tsaShift->id)->whereDate('entry_date', $date)->first()
+            ?? new \App\Models\ActualIncomeOverride(['product_id' => $product->id, 'tsa_id' => $tsaShift->id, 'entry_date' => $date]);
+        $old = $override->only(array_keys($data));
+        $override->fill($data);
+
+        $context = $product->display_name . ' — ' . $tsaShift->display_name . ' for ' . \Illuminate\Support\Carbon::parse($date)->format('F Y') . ' (Actual Income)';
+        foreach ($data as $field => $new) {
+            if (($old[$field] ?? null) === null && $new === null) continue;
+            if (($old[$field] ?? null) !== null && $new !== null && (float) $old[$field] == (float) $new) continue;
+            \App\Support\ActivityLogger::logFieldUpdate('actual_income.field_updated', $product, $field,
+                $old[$field] ?? 'automatic', $new ?? 'automatic', $context,
+                fn ($v) => is_numeric($v) ? number_format((float) $v, 2) : (string) $v);
+        }
+
+        if (collect(\App\Models\ActualIncomeOverride::FIELDS)->every(fn ($f) => $override->{$f} === null)) {
+            if ($override->exists) {
+                $override->delete();
+            }
+        } else {
+            $override->save();
+        }
+
+        return response()->json(['success' => true]);
+    }
 }

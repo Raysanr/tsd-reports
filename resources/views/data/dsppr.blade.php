@@ -97,6 +97,9 @@
         ['key' => 'pickup_rate', 'label' => 'Pick-up Rate', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
         ['key' => 'conversion_rate', 'label' => 'Conversion Rate', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
         ['key' => 'upselling_rate', 'label' => 'Upselling Rate', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
+        ['key' => 'projected_answered', 'label' => 'Projected Answered', 'title' => 'Projected customers na sasagot ng call = Excess Leads × Pick-up Rate', 'editable' => false, 'money' => true, 'headerBg' => 'bg-emerald-200 dark:bg-emerald-800'],
+        ['key' => 'projected_sold', 'label' => 'Projected Sold', 'title' => 'Projected customers na mabebentahan = Projected Answered × Conversion Rate', 'editable' => false, 'money' => true, 'headerBg' => 'bg-emerald-200 dark:bg-emerald-800'],
+        ['key' => 'expected_sales', 'label' => 'Expected Sales', 'title' => 'Expected Sales = Projected Sold × AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-emerald-200 dark:bg-emerald-800'],
     ];
 
     // TIKTOK ORDERS row's own column set (explicit request, 2026-10-05) —
@@ -126,6 +129,9 @@
         ['key' => 'pickup_rate', 'label' => 'Pick-up Rate', 'editable' => true, 'override' => true, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
         ['key' => 'conversion_rate', 'label' => 'Conversion Rate', 'editable' => true, 'override' => true, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
         ['key' => 'upselling_rate', 'label' => 'Upselling Rate', 'editable' => true, 'override' => true, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
+        ['key' => 'projected_answered', 'label' => 'Projected Answered', 'title' => 'Projected customers na sasagot ng call = Excess Leads × Pick-up Rate', 'editable' => false, 'money' => true, 'headerBg' => 'bg-emerald-200 dark:bg-emerald-800'],
+        ['key' => 'projected_sold', 'label' => 'Projected Sold', 'title' => 'Projected customers na mabebentahan = Projected Answered × Conversion Rate', 'editable' => false, 'money' => true, 'headerBg' => 'bg-emerald-200 dark:bg-emerald-800'],
+        ['key' => 'expected_sales', 'label' => 'Expected Sales', 'title' => 'Expected Sales = Projected Sold × AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-emerald-200 dark:bg-emerald-800'],
     ];
 @endphp
 
@@ -186,12 +192,18 @@
                     <th class="bg-rose-200 dark:bg-rose-800 text-right px-3 py-2 font-bold whitespace-nowrap">Pick-up Rate</th>
                     <th class="bg-rose-200 dark:bg-rose-800 text-right px-3 py-2 font-bold whitespace-nowrap">Conversion Rate</th>
                     <th class="bg-rose-200 dark:bg-rose-800 text-right px-3 py-2 font-bold whitespace-nowrap">Upselling Rate</th>
+                    <th class="bg-emerald-200 dark:bg-emerald-800 text-right px-3 py-2 font-bold whitespace-nowrap" title="Projected customers na sasagot ng call = Excess Leads × Pick-up Rate">Projected Answered</th>
+                    <th class="bg-emerald-200 dark:bg-emerald-800 text-right px-3 py-2 font-bold whitespace-nowrap" title="Projected customers na mabebentahan = Projected Answered × Conversion Rate">Projected Sold</th>
+                    <th class="bg-emerald-200 dark:bg-emerald-800 text-right px-3 py-2 font-bold whitespace-nowrap" title="Expected Sales = Projected Sold × AOV">Expected Sales</th>
                 </tr>
             </thead>
             <tbody>
+                @php $projSummary = array_fill_keys(\App\Support\DsPprCalculator::PROJECTION_KEYS, 0.0); @endphp
                 @foreach($rows as $row)
                 @php
                     $d = $row['derived'];
+                    $d = array_merge($d, \App\Support\DsPprCalculator::projections($d));
+                    foreach (\App\Support\DsPprCalculator::PROJECTION_KEYS as $pk) { $projSummary[$pk] += $d[$pk]; }
                     // Raw tally() counts summed across EVERY date in the
                     // selected range for THIS one row — exposed as data-*
                     // attributes (2026-10-09) so the JS live-recompute can
@@ -245,6 +257,9 @@
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="pickup_rate">{{ $fmtPct($d['pickup_rate']) }}</td>
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="conversion_rate">{{ $fmtPct($d['conversion_rate']) }}</td>
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="upselling_rate">{{ $fmtPct($d['upselling_rate']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="projected_answered">{{ $fmtMoney($d['projected_answered']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="projected_sold">{{ $fmtMoney($d['projected_sold']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="expected_sales">{{ $fmtMoney($d['expected_sales']) }}</td>
                 </tr>
                 @endforeach
                 @unless(\App\Support\DataSet::isPartners()) {{-- no TikTok in Partners --}}
@@ -252,7 +267,11 @@
                      2026-10-05), NOT a real Product, see
                      DsPprReportController's own doc comment on
                      updateTiktok(). --}}
-                @php $td = $tiktokRow['derived']; @endphp
+                @php
+                    $td = $tiktokRow['derived'];
+                    $td = array_merge($td, \App\Support\DsPprCalculator::projections($td));
+                    foreach (\App\Support\DsPprCalculator::PROJECTION_KEYS as $pk) { $projSummary[$pk] += $td[$pk]; }
+                @endphp
                 <tr class="dsppr-summary-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-row-key="tiktok">
                     <td class="dsppr-sticky dsppr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">TIKTOK ORDERS</td>
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="gross_sales">{{ $fmtMoney($td['gross_sales']) }}</td>
@@ -266,6 +285,9 @@
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="pickup_rate">{{ $fmtPct($td['pickup_rate']) }}</td>
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="conversion_rate">{{ $fmtPct($td['conversion_rate']) }}</td>
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="upselling_rate">{{ $fmtPct($td['upselling_rate']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="projected_answered">{{ $fmtMoney($td['projected_answered']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="projected_sold">{{ $fmtMoney($td['projected_sold']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="expected_sales">{{ $fmtMoney($td['expected_sales']) }}</td>
                 </tr>
                 @endunless
             </tbody>
@@ -283,6 +305,9 @@
                     <td class="px-3 py-2.5 text-right" data-out="pickup_rate">{{ $fmtPct($overallTotal['pickup_rate']) }}</td>
                     <td class="px-3 py-2.5 text-right" data-out="conversion_rate">{{ $fmtPct($overallTotal['conversion_rate']) }}</td>
                     <td class="px-3 py-2.5 text-right" data-out="upselling_rate">{{ $fmtPct($overallTotal['upselling_rate']) }}</td>
+                    <td class="px-3 py-2.5 text-right" data-out="projected_answered">{{ $fmtMoney($projSummary['projected_answered']) }}</td>
+                    <td class="px-3 py-2.5 text-right" data-out="projected_sold">{{ $fmtMoney($projSummary['projected_sold']) }}</td>
+                    <td class="px-3 py-2.5 text-right" data-out="expected_sales">{{ $fmtMoney($projSummary['expected_sales']) }}</td>
                 </tr>
             </tfoot>
         </table>
@@ -349,7 +374,7 @@
                 <tr>
                     @foreach($dates as $date)
                         @foreach($dayColumns as $i => $col)
-                        <th class="text-right px-3 py-2 font-bold whitespace-nowrap text-ink dark:text-slate-100 {{ $col['headerBg'] }} {{ $i === count($dayColumns) - 1 ? 'dsppr-day-end' : '' }}">
+                        <th class="text-right px-3 py-2 font-bold whitespace-nowrap text-ink dark:text-slate-100 {{ $col['headerBg'] }} {{ $i === count($dayColumns) - 1 ? 'dsppr-day-end' : '' }}" @isset($col['title']) title="{{ $col['title'] }}" @endisset>
                             {{ $col['label'] }}
                         </th>
                         @endforeach
@@ -357,6 +382,7 @@
                 </tr>
             </thead>
             <tbody>
+                @php $projByDate = []; @endphp
                 @foreach($rows as $row)
                 @php
                     $isGroup = (bool) $row['group'];
@@ -450,6 +476,10 @@
                             // ran on the entry row before $real's Gross Sales/
                             // Net Income were merged in, so NI % stayed 0.00%.
                             $d['ni_pct'] = $d['gross_sales'] > 0 ? $d['net_income'] / $d['gross_sales'] : 0.0;
+                            $d = array_merge($d, \App\Support\DsPprCalculator::projections($d));
+                            foreach (\App\Support\DsPprCalculator::PROJECTION_KEYS as $pk) {
+                                $projByDate[$dateStr][$pk] = ($projByDate[$dateStr][$pk] ?? 0) + $d[$pk];
+                            }
                         @endphp
                         @foreach($dayColumns as $i => $col)
                             @php $borderClass = $i === count($dayColumns) - 1 ? 'dsppr-day-end' : ''; @endphp
@@ -511,6 +541,10 @@
                             $dateStr = $date->toDateString();
                             $raw = $tiktokDailyByKey->get($dateStr, ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0]);
                             $d = \App\Support\DsPprCalculator::derive($raw);
+                            $d = array_merge($d, \App\Support\DsPprCalculator::projections($d));
+                            foreach (\App\Support\DsPprCalculator::PROJECTION_KEYS as $pk) {
+                                $projByDate[$dateStr][$pk] = ($projByDate[$dateStr][$pk] ?? 0) + $d[$pk];
+                            }
                             $tiktokEntry = $tiktokEntriesByDate->get($dateStr);
                         @endphp
                         @foreach($tiktokDayColumns as $i => $col)
@@ -711,6 +745,10 @@
                             // total_orders) aov — recompute it fresh now
                             // that the real total_orders is in place.
                             $dayTotal['aov'] = $dayTotal['total_orders'] > 0 ? $dayTotal['gross_sales'] / $dayTotal['total_orders'] : 0.0;
+                            // Projections: TOTAL = sum of the rows above.
+                            foreach (\App\Support\DsPprCalculator::PROJECTION_KEYS as $pk) {
+                                $dayTotal[$pk] = $projByDate[$dateStr][$pk] ?? 0.0;
+                            }
                         @endphp
                         @foreach($dayColumns as $i => $col)
                         <td class="px-3 py-2.5 text-right {{ $i === count($dayColumns) - 1 ? 'dsppr-day-end' : '' }} {{ $col['key'] === 'net_income' && $dayTotal['net_income'] < 0 ? 'text-red-400' : '' }} {{ $col['key'] === 'ni_pct' && $dayTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}"
@@ -874,6 +912,46 @@
     // for ONE (row, date) pair — rows and totals both use this, keyed by
     // the same data-date attribute so a day's edit never bleeds into a
     // neighboring day's read-only cells in the SAME chunk's table.
+    // Projection columns (2026-11-17) — mirrors DsPprCalculator::projections():
+    // Projected Answered = Excess × Pick-up, Projected Sold = Answered ×
+    // Conversion, Expected Sales = Sold × AOV; TOTAL rows = sum of rows.
+    // Reads each row's own displayed cells (a TikTok override input's
+    // value, or its placeholder when blank).
+    const PROJ_KEYS = ['projected_answered', 'projected_sold', 'expected_sales'];
+    function projCellNum(row, key, date) {
+        const sel = date ? `[data-date="${date}"]` : ':not([data-date])';
+        const el = row.querySelector(`[data-out="${key}"]${sel}`) || row.querySelector(`[data-field="${key}"]${sel}`);
+        if (!el) return 0;
+        const text = el.tagName === 'INPUT' ? (el.value.trim() || el.placeholder) : el.textContent;
+        const n = Number(String(text).replace(/[,%\s]/g, '')) || 0;
+        return String(text).includes('%') ? n / 100 : n;
+    }
+    function refreshProjections() {
+        document.querySelectorAll('table.dsppr-table').forEach((table) => {
+            const totals = {};
+            table.querySelectorAll('tbody tr').forEach((row) => {
+                row.querySelectorAll('[data-out="expected_sales"]').forEach((cell) => {
+                    const date = cell.dataset.date || '';
+                    const answered = projCellNum(row, 'excess_leads', date) * projCellNum(row, 'pickup_rate', date);
+                    const sold = answered * projCellNum(row, 'conversion_rate', date);
+                    const vals = { projected_answered: answered, projected_sold: sold, expected_sales: sold * projCellNum(row, 'aov', date) };
+                    totals[date] = totals[date] || { projected_answered: 0, projected_sold: 0, expected_sales: 0 };
+                    PROJ_KEYS.forEach((k) => {
+                        const out = row.querySelector(`[data-out="${k}"]${date ? `[data-date="${date}"]` : ':not([data-date])'}`);
+                        if (out) out.textContent = fmtMoney(vals[k]);
+                        totals[date][k] += vals[k];
+                    });
+                });
+            });
+            table.querySelectorAll('tfoot tr').forEach((row) => {
+                Object.keys(totals).forEach((date) => PROJ_KEYS.forEach((k) => {
+                    const out = row.querySelector(`[data-out="${k}"]${date ? `[data-date="${date}"]` : ':not([data-date])'}`);
+                    if (out) out.textContent = fmtMoney(totals[date][k]);
+                }));
+            });
+        });
+    }
+
     function applyDerived(row, date, derived) {
         row.querySelectorAll(`[data-out][data-date="${date}"]`).forEach((el) => {
             const key = el.dataset.out;
@@ -1214,6 +1292,7 @@
                 if (data?.derived) applyDerived(row, date, data.derived);
                 refreshDayTotal(table, date);
                 refreshSummaryRow(row.dataset.rowKey);
+                refreshProjections();
             })
             .catch(() => {
                 flashStatus('Could not save — try again.', true);

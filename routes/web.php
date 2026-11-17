@@ -482,6 +482,9 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules', 'normal-pages
         // Actual Income (2026-10-21) — Expected Income's page with the
         // revenue split by real Pancake order status. Read-only.
         Route::get('/actual-income', [\App\Http\Controllers\DataManagement\ActualIncomeController::class, 'index'])->name('actual-income');
+        // Automated-but-editable Number of Orders / Product Cost /
+        // Fulfillment Fee per TSA product card (2026-11-17).
+        Route::patch('/actual-income/{product}/{date}/tsa/{tsaShift}', [\App\Http\Controllers\DataManagement\ActualIncomeController::class, 'updateOverride'])->name('actual-income.update-tsa');
 
         // Cost Breakdown (explicit request, 2026-09-29: "add new page in
         // data management (COST BREAKDOWN)") — admin-only within the

@@ -71,6 +71,29 @@ class DsPprCalculator
         ];
     }
 
+    /** Projection columns from the TSD Daily Sales Report sheet
+     *  (explicit request, 2026-11-17), computed from an already-final
+     *  derived row (real rates/AOV merged in):
+     *  - Projected Answered = Excess Leads × Pick-up Rate
+     *    (customers expected to answer the call)
+     *  - Projected Sold = Projected Answered × Conversion Rate
+     *    (customers expected to buy)
+     *  - Expected Sales = Projected Sold × AOV
+     *  The sheet shows #DIV/0! when a rate has no data; here it's 0. */
+    public const PROJECTION_KEYS = ['projected_answered', 'projected_sold', 'expected_sales'];
+
+    public static function projections(array $d): array
+    {
+        $answered = (float) ($d['excess_leads'] ?? 0) * (float) ($d['pickup_rate'] ?? 0);
+        $sold = $answered * (float) ($d['conversion_rate'] ?? 0);
+
+        return [
+            'projected_answered' => $answered,
+            'projected_sold'     => $sold,
+            'expected_sales'     => $sold * (float) ($d['aov'] ?? 0),
+        ];
+    }
+
     /** Sums N raw rows' own 6 inputs, then derives the summed row's own
      *  dollar/count figures fresh from those totals (NI%, AOV, Actual
      *  Cost Per Lead, Excess Leads) — confirmed-exact "recompute the

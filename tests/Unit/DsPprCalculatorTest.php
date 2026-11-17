@@ -197,4 +197,25 @@ class DsPprCalculatorTest extends TestCase
         $this->assertEqualsWithDelta(0.75, $summed['pickup_rate'], 0.0001);
         $this->assertEqualsWithDelta(0.60, $summed['conversion_rate'], 0.0001);
     }
+
+    /** Sheet projection columns (2026-11-17): Excess × Pick-up → Answered,
+     *  × Conversion → Sold, × AOV → Expected Sales. */
+    public function test_projections_follow_the_sheet_formula(): void
+    {
+        $p = DsPprCalculator::projections([
+            'excess_leads' => 40, 'pickup_rate' => 0.51, 'conversion_rate' => 0.5382, 'aov' => 877.27,
+        ]);
+
+        $this->assertEqualsWithDelta(20.40, $p['projected_answered'], 0.0001);
+        $this->assertEqualsWithDelta(20.40 * 0.5382, $p['projected_sold'], 0.0001);
+        $this->assertEqualsWithDelta(20.40 * 0.5382 * 877.27, $p['expected_sales'], 0.0001);
+    }
+
+    public function test_projections_are_zero_without_rates(): void
+    {
+        $p = DsPprCalculator::projections(['excess_leads' => 12]);
+
+        $this->assertSame(0.0, $p['projected_answered']);
+        $this->assertSame(0.0, $p['expected_sales']);
+    }
 }

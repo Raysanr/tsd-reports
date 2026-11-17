@@ -1050,7 +1050,7 @@ class ExpectedIncomeController extends Controller
             $realCancelled = $this->totalRealGrossSales($cancelledMap, $groupProducts, $onlyOrderTeam, $dateFrom, $dateTo);
             $pooledCancelled = (float) $pooledRaw->sum('cancelled');
             $cancelledGap = $realCancelled - $pooledCancelled;
-            $bucketGaps = self::bucketGaps(collect(ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS)->keys()
+            $bucketGaps = self::bucketGaps(collect(self::gapKeys())
                 ->mapWithKeys(fn ($b) => [$b => $this->totalRealGrossSales($grossSalesAndOrders[$b], $groupProducts, $onlyOrderTeam, $dateFrom, $dateTo)])->all(), $pooledRaw->all());
             if (abs($grossSalesGap) > 0.005 || abs($ordersGap) > 0.005 || abs($cancelledGap) > 0.005 || self::hasGap($bucketGaps)) {
                 $pooledRaw = $pooledRaw->push(['gross_sales' => $grossSalesGap, 'number_of_orders' => $ordersGap, 'cancelled' => $cancelledGap] + $bucketGaps);
@@ -2036,6 +2036,7 @@ class ExpectedIncomeController extends Controller
         $grossSalesAndOrders = $precomputedGrossSalesAndOrders ?? $this->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
         ['grossSales' => $grossSalesMap, 'numberOfOrders' => $numberOfOrdersMap, 'cancelled' => $cancelledMap] = $grossSalesAndOrders;
 
+        $actualOverrides = \App\Support\ActualIncomeOverrides::forRange($dateFrom, $dateTo);
         $raw = $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap, $tsaId, $grossSalesAndOrders) {
             return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap, $tsaId, $grossSalesAndOrders) {
                 $dateStr = $date->toDateString();
@@ -2049,9 +2050,29 @@ class ExpectedIncomeController extends Controller
                 foreach (ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS as $b => $_) {
                     $row[$b] = $this->grossSalesForTsaProductDate($grossSalesAndOrders[$b], $tsaId, $p->id, $dateStr);
                 }
+                if (isset($grossSalesAndOrders['product_cost'])) {
+                    $row['product_cost'] = $this->grossSalesForTsaProductDate($grossSalesAndOrders['product_cost'], $tsaId, $p->id, $dateStr);
+                }
                 return [$dateStr => $row];
             })];
         });
+
+        // Actual Income overrides (2026-11-17): one per TSA × product ×
+        // month — the delta from that month's automated totals lands on the
+        // month's first day here, so the month card and rollups sum to it.
+        if ($tsaId !== null && $actualOverrides->isNotEmpty()) {
+            $raw = $raw->map(function ($byDate, $productId) use ($tsaId, $actualOverrides) {
+                foreach (collect($byDate)->groupBy(fn ($row, $date) => substr($date, 0, 7), true) as $month => $monthRows) {
+                    $override = $actualOverrides->get(\App\Support\ActualIncomeOverrides::key($productId, $tsaId, $month));
+                    if ($override === null) continue;
+                    $base = ['number_of_orders' => $monthRows->sum('number_of_orders'), 'product_cost' => $monthRows->sum('product_cost')];
+                    $firstDate = $monthRows->keys()->first();
+                    $byDate[$firstDate] = array_merge($byDate[$firstDate], \App\Support\ActualIncomeOverrides::deltas($base, $override));
+                }
+
+                return $byDate;
+            });
+        }
 
         return ['raw' => $raw, 'entriesByKey' => $entries];
     }
@@ -2406,6 +2427,9 @@ class ExpectedIncomeController extends Controller
         // comment for the full basis.
         $cancelled = [];
         $buckets = array_fill_keys(array_keys(ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS), []);
+        // Actual Income's automated Product Cost (2026-11-17), same matched orders.
+        $automateProductCost = \App\Support\ActualIncomeOverrides::automatesProductCost();
+        $productCost = [];
 
         foreach ($dates as $date) {
             $dateStr = $date->toDateString();
@@ -2439,13 +2463,17 @@ class ExpectedIncomeController extends Controller
                                 $buckets[$bucket][$key] = ($buckets[$bucket][$key] ?? 0.0) + $inBucket->sum(fn (Order $o) => $o->realUpsellAmount());
                             }
                         }
+                        if ($automateProductCost) {
+                            $productCost[$key] = ($productCost[$key] ?? 0.0) + $ordersForTsa->sum(fn (Order $o) => \App\Support\ActualIncomeOverrides::productCostOf($o));
+                        }
                     }
                 }
             }
         }
 
         return ['grossSales' => collect($sales), 'numberOfOrders' => collect($orderCounts), 'cancelled' => collect($cancelled)]
-            + array_map(fn ($m) => collect($m), $buckets);
+            + array_map(fn ($m) => collect($m), $buckets)
+            + ($automateProductCost ? ['product_cost' => collect($productCost)] : []);
     }
 
     /** The TELESALES/per-team rollup's own Gross Sales — explicit
@@ -2596,7 +2624,7 @@ class ExpectedIncomeController extends Controller
             'grossSales' => (float) $tally['upsell_sales'],
             'orders' => (int) $tally['upsell_confirmation'],
             'cancelled' => (float) $tally['cancelled_upsell_sales'],
-        ] + self::bucketsFromTally($tally);
+        ] + self::bucketsFromTally($tally, $orders);
     }
 
     /** Public wrapper around teamUpsellTotals() — built for
@@ -2727,7 +2755,7 @@ class ExpectedIncomeController extends Controller
                     'gross_sales'      => (float) $tally['upsell_sales'],
                     'number_of_orders' => (int) $tally['upsell_confirmation'],
                     'cancelled'        => (float) $tally['cancelled_upsell_sales'],
-                ] + self::bucketsFromTally($tally);
+                ] + self::bucketsFromTally($tally, $orders);
             });
     }
 
@@ -2748,24 +2776,38 @@ class ExpectedIncomeController extends Controller
             [$dateFrom, $dateTo]
         )->where('tsa_name', $tsa->tsa_key)->get()->pipe(fn ($orders) => ProductPerformance::withoutHiddenProductOrders(Order::withoutTiktokUpsells($orders)));
 
-        return self::bucketsFromTally(ProductPerformance::tally($orders));
+        return self::bucketsFromTally(ProductPerformance::tally($orders), $orders);
     }
 
-    private static function bucketsFromTally(array $tally): array
+    /** Keys the rollup gap-fill tops up: the Actual status buckets, plus
+     *  Product Cost when Actual Income automates it (2026-11-17). */
+    private static function gapKeys(): array
     {
-        return collect(ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS)->keys()
+        $keys = array_keys(ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS);
+
+        return \App\Support\ActualIncomeOverrides::automatesProductCost() ? [...$keys, 'product_cost'] : $keys;
+    }
+
+    private static function bucketsFromTally(array $tally, $orders = null): array
+    {
+        $buckets = collect(ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS)->keys()
             ->mapWithKeys(fn ($b) => [$b => (float) ($tally[$b . '_upsell_sales'] ?? 0)])->all();
+        if (\App\Support\ActualIncomeOverrides::automatesProductCost()) {
+            $buckets['product_cost'] = \App\Support\ActualIncomeOverrides::productCostOfOrders($orders ?? collect());
+        }
+
+        return $buckets;
     }
 
     private static function zeroBuckets(): array
     {
-        return array_fill_keys(array_keys(ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS), 0.0);
+        return array_fill_keys(self::gapKeys(), 0.0);
     }
 
     /** $real[bucket] − what the pooled rows already hold, per bucket. */
     private static function bucketGaps(array $real, array $pooledRows): array
     {
-        return collect(ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS)->keys()
+        return collect(self::gapKeys())
             ->mapWithKeys(fn ($b) => [$b => (float) ($real[$b] ?? 0) - (float) array_sum(array_column($pooledRows, $b))])->all();
     }
 
@@ -3046,13 +3088,43 @@ class ExpectedIncomeController extends Controller
         $grossSalesAndOrders = $precomputedGrossSalesAndOrders ?? $this->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
         ['grossSales' => $grossSalesMap, 'numberOfOrders' => $numberOfOrdersMap, 'cancelled' => $cancelledMap] = $grossSalesAndOrders;
 
-        return $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $operatingOverridesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap, $grossSalesAndOrders) {
-            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $operatingOverridesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap, $grossSalesAndOrders) {
+        // Actual Income's typed overrides (2026-11-17) — one delta-only row
+        // per overridden (TSA, product, day), whether or not that TSA has an
+        // Expected Income entry, so the ALL/team rollups include them.
+        // Month-level (one per TSA × product × month), added on the first
+        // date of that month in range, with the month's automated totals as base.
+        $overridesByCell = \App\Support\ActualIncomeOverrides::forRange($dateFrom, $dateTo)
+            ->filter(fn ($o) => in_array($o->tsa_id, $effectiveTsaIds))
+            ->groupBy(fn ($o) => $o->product_id . ':' . $o->entry_date->format('Y-m'));
+        $firstDateOfMonth = $dates->map(fn ($d) => $d->toDateString())->groupBy(fn ($d) => substr($d, 0, 7))->map->first();
+        $overrideRowsFor = function (int $productId, string $dateStr) use ($overridesByCell, $firstDateOfMonth, $dates, $entries, $numberOfOrdersMap, $grossSalesAndOrders) {
+            $month = substr($dateStr, 0, 7);
+            if (($firstDateOfMonth[$month] ?? null) !== $dateStr) {
+                return [];
+            }
+            $monthDates = $dates->map(fn ($d) => $d->toDateString())->filter(fn ($d) => str_starts_with($d, $month));
+
+            return $overridesByCell->get($productId . ':' . $month, collect())->map(function ($o) use ($productId, $monthDates, $entries, $numberOfOrdersMap, $grossSalesAndOrders) {
+                $base = ['number_of_orders' => 0, 'product_cost' => 0.0];
+                foreach ($monthDates as $d) {
+                    $base['number_of_orders'] += (int) $this->grossSalesForTsaProductDate($numberOfOrdersMap, $o->tsa_id, $productId, $d);
+                    $base['product_cost'] += isset($grossSalesAndOrders['product_cost'])
+                        ? $this->grossSalesForTsaProductDate($grossSalesAndOrders['product_cost'], $o->tsa_id, $productId, $d)
+                        : (float) ($entries->get($productId . ':' . $d, collect())->firstWhere('tsa_id', $o->tsa_id)?->product_cost ?? 0);
+                }
+
+                return \App\Support\ActualIncomeOverrides::deltas($base, $o);
+            })->filter()->values()->all();
+        };
+
+        return $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $operatingOverridesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap, $grossSalesAndOrders, $overrideRowsFor) {
+            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $operatingOverridesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap, $grossSalesAndOrders, $overrideRowsFor) {
                 $dateStr = $date->toDateString();
                 $rowsForThisCell = $entries->get($p->id . ':' . $dateStr, collect());
+                $overrideRows = $overrideRowsFor($p->id, $dateStr);
 
                 if ($rowsForThisCell->isEmpty()) {
-                    return [$dateStr => collect([array_merge(['number_of_leads' => 0, 'gross_sales' => 0.0, 'number_of_orders' => 0, 'cancelled' => 0.0], $customValuesFor($p->id, $dateStr, null))])];
+                    return [$dateStr => collect([array_merge(['number_of_leads' => 0, 'gross_sales' => 0.0, 'number_of_orders' => 0, 'cancelled' => 0.0], $customValuesFor($p->id, $dateStr, null)), ...$overrideRows])];
                 }
 
                 $rows = $rowsForThisCell->map(function (ExpectedIncomeEntry $entry) use ($p, $dateStr, $customValuesFor, $operatingOverridesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap, $grossSalesAndOrders) {
@@ -3064,10 +3136,13 @@ class ExpectedIncomeController extends Controller
                     foreach (ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS as $b => $_) {
                         $row[$b] = $entry->tsa_id === null ? 0.0 : $this->grossSalesForTsaProductDate($grossSalesAndOrders[$b], $entry->tsa_id, $p->id, $dateStr);
                     }
+                    if (isset($grossSalesAndOrders['product_cost'])) {
+                        $row['product_cost'] = $entry->tsa_id === null ? 0.0 : $this->grossSalesForTsaProductDate($grossSalesAndOrders['product_cost'], $entry->tsa_id, $p->id, $dateStr);
+                    }
                     return $entry->tsa_id === null ? $row : array_merge($row, $operatingOverridesFor($entry->tsa_id, $dateStr));
                 });
 
-                return [$dateStr => $rows];
+                return [$dateStr => $rows->concat($overrideRows)];
             })];
         });
     }

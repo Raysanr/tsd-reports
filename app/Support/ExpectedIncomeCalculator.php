@@ -281,9 +281,11 @@ class ExpectedIncomeCalculator
         $standardCostPerMessage = (float) ($row['standard_cost_per_message'] ?? 0);
         $actualCostPerLead  = (float) ($row['actual_cost_per_lead'] ?? 0);
         $leads              = (float) ($row['number_of_leads'] ?? 0);
-        $orders             = (float) ($row['number_of_orders'] ?? 0);
+        // *_adj: Actual Income's typed overrides as deltas on the automated
+        // value (2026-11-17, see ActualIncomeOverrides) — absent elsewhere.
+        $orders             = (float) ($row['number_of_orders'] ?? 0) + (float) ($row['number_of_orders_adj'] ?? 0);
         $taxAllocation      = (float) ($row['tax_allocation'] ?? 0);
-        $productCost        = (float) ($row['product_cost'] ?? 0);
+        $productCost        = (float) ($row['product_cost'] ?? 0) + (float) ($row['product_cost_adj'] ?? 0);
 
         // Gross Sales and Cancelled are plain manual inputs (explicit
         // request, 2026-09-28: "in the expected i want you to make all is
@@ -336,7 +338,7 @@ class ExpectedIncomeCalculator
         $sellingLines = collect($sellingKeys)
             ->mapWithKeys(fn ($key) => [$key => (float) ($row[$key] ?? 0)])
             ->put('cod_fee', $delivered * self::COD_FEE_RATE_OF_DELIVERED)
-            ->when(!DataSet::isPartners() && in_array('fulfillment_fee', $sellingKeys, true), fn ($lines) => $lines->put('fulfillment_fee', $orders * self::FULFILLMENT_FEE_PER_ORDER));
+            ->when(!DataSet::isPartners() && in_array('fulfillment_fee', $sellingKeys, true), fn ($lines) => $lines->put('fulfillment_fee', $orders * self::FULFILLMENT_FEE_PER_ORDER + (float) ($row['fulfillment_fee_adj'] ?? 0)));
         $totalSellingCosts = $sellingLines->sum();
 
         $operatingLines = collect($operatingKeys)
@@ -419,10 +421,15 @@ class ExpectedIncomeCalculator
 
         // selling_lines/operating_lines are Collections on a derive()d row
         // (not plain arrays) — ->toArray() first or array_merge() blows up.
+        // fulfillment_fee_adj keeps a typed Actual Income Fulfillment Fee
+        // (2026-11-17) — derive() would otherwise recompute it from orders.
         $flatten = fn (array $row) => array_merge(
             $row,
             collect($row['selling_lines'] ?? [])->toArray(),
-            collect($row['operating_lines'] ?? [])->toArray()
+            collect($row['operating_lines'] ?? [])->toArray(),
+            isset($row['selling_lines']['fulfillment_fee'])
+                ? ['fulfillment_fee_adj' => (float) $row['selling_lines']['fulfillment_fee'] - (float) ($row['number_of_orders'] ?? 0) * self::FULFILLMENT_FEE_PER_ORDER]
+                : []
         );
 
         return self::sum([$flatten($a), $flatten($b)], $sellingKeys, $operatingKeys);
@@ -529,7 +536,8 @@ class ExpectedIncomeCalculator
         $operatingKeys ??= array_keys(self::OPERATING_COST_ROWS);
 
         $sumKeys = array_merge(
-            ['number_of_leads', 'number_of_orders', 'gross_sales', 'cancelled', 'unfulfilled', 'fulfilled', 'actual_returns', 'returns', 'delivered', 'tax_allocation', 'product_cost'],
+            ['number_of_leads', 'number_of_orders', 'gross_sales', 'cancelled', 'unfulfilled', 'fulfilled', 'actual_returns', 'returns', 'delivered', 'tax_allocation', 'product_cost',
+                'number_of_orders_adj', 'product_cost_adj', 'fulfillment_fee_adj'],
             $sellingKeys,
             $operatingKeys
         );

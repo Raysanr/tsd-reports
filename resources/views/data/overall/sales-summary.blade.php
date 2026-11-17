@@ -108,9 +108,9 @@
 @foreach($dateChunks as $chunkIndex => $chunk)
 <div class="rounded-2xl border border-line dark:border-slate-700 shadow-panel overflow-hidden mb-6">
     <div class="bg-black text-white font-mono font-bold text-sm tracking-wide py-2.5 flex items-center">
-        <span class="flex-1 text-center pl-18">TSA'S DAILY SALES REPORT</span>
+        <span class="flex-1 text-center pl-18">TSD SALES SUMMARY REPORT</span>
         <div class="shrink-0 pr-2 tsr-dark-header-actions">
-            @include('partials.table-actions', ['target' => 'overallSalesDaily-' . $chunkIndex, 'name' => 'sales-summary-daily-' . $chunk->first()->toDateString(), 'title' => "TSA's Daily Sales Report", 'subtitle' => $chunk->first()->format('M j') . ' – ' . $chunk->last()->format('M j, Y')])
+            @include('partials.table-actions', ['target' => 'overallSalesDaily-' . $chunkIndex, 'name' => 'tsd-sales-summary-report-' . $chunk->first()->toDateString(), 'title' => 'TSD Sales Summary Report', 'subtitle' => $chunk->first()->format('M j') . ' – ' . $chunk->last()->format('M j, Y')])
         </div>
     </div>
     <div class="overflow-x-auto">

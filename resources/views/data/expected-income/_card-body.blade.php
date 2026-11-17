@@ -38,7 +38,24 @@
      ExpectedIncomeCalculator::partnershipShareRate(). --}}
 @php($isPartnersPnl = \App\Support\ExpectedIncomeCalculator::partnershipShareRate() !== null)
 <div class="px-5 py-4 font-mono text-[13px] space-y-2 border-b border-line dark:border-slate-700">
-    @if($editable ?? false)
+<?php
+    // Actual Income (2026-11-17): Number of Orders, Product Cost and
+    // Fulfillment Fee are automated but editable on a TSA's product card.
+    // The input shows the current value; a typed value is saved as an
+    // override (amber border), and clearing the field returns to automatic.
+    $actualEditable = $actualEditable ?? false;
+    $actualOverride = $actualOverride ?? null;
+    $actualInput = function (string $key, float $value, bool $money) use ($actualOverride) {
+        $isOverridden = $actualOverride?->{$key} !== null;
+        $cls = 'ei-field ei-actual-field w-full text-right bg-slate-50 dark:bg-slate-800 border rounded-md px-1.5 py-0.5 text-xs font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none '
+            . ($isOverridden ? 'border-amber-500 dark:border-amber-400' : 'border-line dark:border-slate-700');
+        $title = $isOverridden ? 'Edited — clear the field to use the automatic value' : 'Automatic — type to override';
+
+        return '<input type="text" inputmode="decimal" value="' . e($money ? number_format($value, 2) : (string) round($value, 2)) . '" data-field="' . $key . '"'
+            . ($money ? ' data-money="1"' : '') . ' data-actual="1" title="' . $title . '" class="' . $cls . '">';
+    };
+?>
+    @if(($editable ?? false) || $actualEditable)
         <div class="flex items-center justify-end -mt-1 -mb-1">
             <span class="ei-card-status text-[11px] font-mono text-ink-muted dark:text-slate-400 min-h-[1.25rem]"></span>
         </div>
@@ -94,6 +111,8 @@
             <input type="text" inputmode="numeric" value="{{ $entry?->number_of_orders ?? 0 }}"
                    data-field="number_of_orders" @if($locked ?? false) disabled @endif
                    class="ei-field w-28 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
+        @elseif($actualEditable)
+            <span class="w-28">{!! $actualInput('number_of_orders', (float) $d['number_of_orders'], false) !!}</span>
         @else
             <span data-out="number_of_orders" class="font-semibold text-ink dark:text-slate-100 text-right">{{ number_format($d['number_of_orders']) }}</span>
         @endif
@@ -237,7 +256,9 @@
         <span class="text-ink-muted dark:text-slate-400 flex items-center gap-1">
             {{ $label }}
         </span>
-        @if(($editable ?? false) && !$isNonEditable)
+        @if($actualEditable && $key === 'fulfillment_fee')
+            {!! $actualInput('fulfillment_fee', (float) ($d['selling_lines'][$key] ?? 0), true) !!}
+        @elseif(($editable ?? false) && !$isNonEditable)
             <input type="text" inputmode="decimal" value="{{ number_format($d['selling_lines'][$key] ?? 0, 2) }}"
                    data-field="{{ $key }}" data-money="1" @if($isCustom) data-custom="1" @endif @if($locked ?? false) disabled @endif
                    class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">

@@ -301,13 +301,23 @@
             @php
                 $d = $row['derived'];
                 $product = $row['products']->first();
+                // Actual Income (2026-11-17): this month card's Number of
+                // Orders / Product Cost / Fulfillment Fee are editable — one
+                // override per TSA × product × month.
+                $isActualPage = \App\Support\ExpectedIncomeCalculator::$actual;
+                $actualMonthStart = $dates->first()->copy()->startOfMonth()->toDateString();
+                $actualOverride = $isActualPage
+                    ? \App\Support\ActualIncomeOverrides::forRange($dates->first()->toDateString(), $dates->last()->toDateString())
+                        ->get(\App\Support\ActualIncomeOverrides::key($product->id, $tsa->id, $actualMonthStart))
+                    : null;
             @endphp
             <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0"
-                 data-product-id="{{ $product->id }}">
+                 data-product-id="{{ $product->id }}"
+                 @if($isActualPage) data-action="{{ route('data.actual-income.update-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => $actualMonthStart]) }}" @endif>
                 <div class="px-5 py-4" style="background:#d9ead3;">
                     <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $row['label'] }}</span>
                 </div>
-                @include('data.expected-income._card-body', ['d' => $d, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
+                @include('data.expected-income._card-body', ['d' => $d, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false, 'actualEditable' => $isActualPage, 'actualOverride' => $actualOverride])
             </div>
             @endforeach
         </div>
@@ -689,7 +699,12 @@
         const scroller = card.closest('.ei-day-scroller');
 
         const field = input.dataset.field;
-        const value = input.dataset.money === '1' ? parseMoney(input.value) : (Number(input.value) || 0);
+        // Actual Income override (2026-11-17): blank = back to automatic.
+        const isActualField = input.dataset.actual === '1';
+        if (isActualField && input.dataset.savedValue === input.value) return;
+        const value = isActualField && input.value.trim() === ''
+            ? ''
+            : (input.dataset.money === '1' ? parseMoney(input.value) : (Number(String(input.value).replace(/,/g, '')) || 0));
 
         if (status) status.textContent = 'Saving…';
         flashStatus('Saving…', false);
@@ -725,6 +740,9 @@
             .then((data) => {
                 if (status) { status.textContent = 'Saved'; setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 1500); }
                 flashStatus('Saved', false);
+                // Actual Income: every card/rollup recomputes server-side
+                // (automated values + overrides), so reload in place.
+                if (isActualField) { rememberActualScroll(); window.location.reload(); return; }
                 if (input.dataset.money === '1' && document.activeElement !== input) {
                     input.value = fmtMoney(value);
                 }
@@ -826,6 +844,25 @@
         });
     }
 
+    // Actual Income reload keeps the page and each card row's scroll spot.
+    function rememberActualScroll() {
+        try {
+            sessionStorage.setItem('eiActualScroll', JSON.stringify({
+                y: window.scrollY,
+                x: [...document.querySelectorAll('.ei-day-scroller, .ei-scroller')].map((el) => el.scrollLeft),
+            }));
+        } catch (e) {}
+    }
+    try {
+        const saved = JSON.parse(sessionStorage.getItem('eiActualScroll') || 'null');
+        sessionStorage.removeItem('eiActualScroll');
+        if (saved) {
+            document.querySelectorAll('.ei-day-scroller, .ei-scroller').forEach((el, i) => { el.scrollLeft = saved.x[i] || 0; });
+            window.scrollTo(0, saved.y || 0);
+        }
+    } catch (e) {}
+    document.querySelectorAll('.ei-actual-field').forEach((el) => { el.dataset.savedValue = el.value; });
+
     document.querySelectorAll('.ei-day-scroller').forEach((scroller) => {
         wireLockToggles(scroller);
 
@@ -833,6 +870,7 @@
             const input = e.target.closest('.ei-field');
             if (!input) return;
             if (input.dataset.money === '1') liveFormatMoney(input);
+            if (input.dataset.actual === '1') return; // saves on blur/Enter (reloads the page)
             clearTimeout(saveTimers.get(input));
             saveTimers.set(input, setTimeout(() => saveField(input), 600));
         });
