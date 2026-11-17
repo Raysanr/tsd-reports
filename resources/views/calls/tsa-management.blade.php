@@ -109,17 +109,16 @@
         {{-- Wrap Up length (2026-11-17) — how long after a call before the
              TSA goes back to Ready to Call (and auto-call dials again).
              Stored as seconds; see ExpireWrapUpStatuses. --}}
-        @php($wrapInMinutes = $wrapUpSeconds % 60 === 0)
         <form id="wrapUpForm" data-action="{{ route('calls.tsa-management.wrap-up-length') }}"
               class="flex items-center gap-1.5" title="How long Wrap Up lasts after a call before the TSA is set back to Ready to Call (5 seconds to 60 minutes).">
             <label for="wrapUpValue" class="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">Wrap Up</label>
             <input id="wrapUpValue" type="number" min="1" max="3600" step="1" required
-                   value="{{ $wrapInMinutes ? $wrapUpSeconds / 60 : $wrapUpSeconds }}"
+                   value="{{ $wrapUpSeconds % 60 === 0 ? $wrapUpSeconds / 60 : $wrapUpSeconds }}"
                    class="w-16 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-xs font-mono text-slate-700 dark:text-slate-200">
             <select id="wrapUpUnit" aria-label="Wrap Up unit"
                     class="rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-1.5 py-1 text-xs font-mono text-slate-700 dark:text-slate-200">
-                <option value="seconds" @selected(! $wrapInMinutes)>sec</option>
-                <option value="minutes" @selected($wrapInMinutes)>min</option>
+                <option value="seconds" @selected($wrapUpSeconds % 60 !== 0)>sec</option>
+                <option value="minutes" @selected($wrapUpSeconds % 60 === 0)>min</option>
             </select>
             <button type="submit" class="rounded-md bg-primary hover:bg-primary-dark px-2 py-1 text-xs font-semibold font-mono text-white cursor-pointer">Save</button>
         </form>
