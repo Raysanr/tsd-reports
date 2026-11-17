@@ -21,7 +21,7 @@ class ErrorPagesTest extends TestCase
     {
         $this->actingAs(User::factory()->normal()->create());
 
-        $response = $this->get(route('product-management'));
+        $response = $this->get(route('hub.product-management'));
 
         $response->assertForbidden();
         $response->assertSee('TSD Leads Reports', false);

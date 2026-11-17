@@ -339,8 +339,7 @@ class SettingsController extends Controller
         // Same _redirect_route allowlist pattern as UserManagementController/
         // TsaManagementController — this form is shared by /tsa-management and
         // the Hub-styled /hub/tsa-management page.
-        $target = $request->input('_redirect_route');
-        $target = in_array($target, ['tsa-management', 'hub.tsa-management'], true) ? $target : 'tsa-management';
+        $target = \App\Support\ManageReturn::target($request, 'tsa', ['tsa-management', 'hub.tsa-management'], 'hub.tsa-management');
 
         return redirect()->route($target, \App\Support\TsaMonths::isValid($request->input('shift_month')) ? ['month' => $shiftMonth] : [])->with('success', 'Shift schedules saved.');
     }

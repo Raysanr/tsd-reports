@@ -63,7 +63,7 @@ class HubUserManagementTest extends TestCase
             'name' => 'Default Route Person', 'email' => 'default.route@example.com', 'role' => 'normal',
         ]);
 
-        $response->assertRedirect(route('user-management'));
+        $response->assertRedirect(route('hub.users'));
     }
 
     /** An arbitrary route name in _redirect_route must not be trusted as a
@@ -77,7 +77,7 @@ class HubUserManagementTest extends TestCase
             'role' => 'normal', '_redirect_route' => 'dashboard',
         ]);
 
-        $response->assertRedirect(route('user-management'));
+        $response->assertRedirect(route('hub.users'));
     }
 
     public function test_toggling_active_from_the_hub_page_redirects_back_to_the_hub_page(): void

@@ -505,7 +505,6 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules', 'normal-pages
             Route::delete('/tsa-sales-month-lock', [\App\Http\Controllers\DataManagement\TsaSalesReportController::class, 'unlockMonth'])->name('tsa-sales.unlock-month');
             Route::get('/overall/projections', [\App\Http\Controllers\DataManagement\OverallPerformanceController::class, 'projections'])->name('overall.projections');
             Route::get('/overall/sales-summary', [\App\Http\Controllers\DataManagement\OverallPerformanceController::class, 'salesSummary'])->name('overall.sales-summary');
-            Route::patch('/overall/sales-summary/tsa-count', [\App\Http\Controllers\DataManagement\OverallPerformanceController::class, 'updateTsaCount'])->name('overall.sales-summary.tsa-count');
             Route::get('/overall/expected-income', [\App\Http\Controllers\DataManagement\OverallPerformanceController::class, 'expectedIncome'])->name('overall.expected-income');
             Route::get('/cost-breakdown', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'index'])->name('cost-breakdown');
             // Add Cost Breakdown for a month (copies last month) — 2026-10-15.

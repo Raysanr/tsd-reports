@@ -112,7 +112,7 @@ class TsaMonthsTest extends TestCase
     {
         $admin = User::factory()->create(['role' => 'admin']);
 
-        $this->actingAs($admin)->get(route('tsa-management', ['month' => '2026-11']))
+        $this->actingAs($admin)->get(route('hub.tsa-management', ['month' => '2026-11']))
             ->assertOk()->assertSee('Add Shift Per Month');
 
         $this->actingAs($admin)->post(route('tsa-management.months.store'), ['month' => '2026-11'])->assertRedirect();

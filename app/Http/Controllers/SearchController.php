@@ -110,7 +110,7 @@ class SearchController extends Controller
                 ->get()
                 ->map(fn (User $user) => [
                     'label' => "{$user->name} ({$user->email})",
-                    'url'   => route('user-management'),
+                    'url'   => route('hub.users'),
                 ]);
 
             // Audit Log has its own real search (unlike Users/Orders above, which

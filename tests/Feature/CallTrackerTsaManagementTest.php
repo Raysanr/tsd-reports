@@ -216,7 +216,7 @@ class CallTrackerTsaManagementTest extends TestCase
     /**
      * NEW (Phase 9 plan): this ported controller shares the same tsa_shifts
      * table/row as tsd-reports' own pre-existing shift/rest-day roster
-     * (TsaManagementController, route('tsa-management')) — prove that
+     * (TsaManagementController, route('hub.tsa-management')) — prove that
      * updating a TSA's phone/dialer_host through THIS controller
      * (CallTracker\TsaManagementController::update(), which never touches
      * shift_start/rest_day_of_week) leaves those pre-existing fields

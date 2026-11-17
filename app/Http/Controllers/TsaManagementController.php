@@ -18,9 +18,11 @@ use Illuminate\Support\Facades\Http;
 
 class TsaManagementController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        return view('tsa-management', $this->buildViewData());
+        // Lives only in the Hub now (2026-11-17): the Leads Reports sidebar link
+        // is gone; old links/bookmarks land on the Hub page, query kept.
+        return redirect()->route('hub.tsa-management', $request->query());
     }
 
     /** Same data as index() above, rendered as a Hub-styled standalone page
@@ -30,7 +32,11 @@ class TsaManagementController extends Controller
      *  the two pages to send the browser back to. */
     public function hubIndex()
     {
-        return view('hub-tsa-management', $this->buildViewData());
+        // Same view as index(), in the Hub frame — one template, so the two
+        // pages can't drift apart (explicit request, 2026-10-20).
+        \App\Support\ManageReturn::remember('tsa', 'hub.tsa-management');
+
+        return view('tsa-management', $this->buildViewData() + ['layout' => 'layouts.hub-manage']);
     }
 
     private function buildViewData(): array
@@ -121,8 +127,7 @@ class TsaManagementController extends Controller
 
     private function redirectToCaller(Request $request, array $params = []): \Illuminate\Http\RedirectResponse
     {
-        $target = $request->input('_redirect_route');
-        $target = in_array($target, self::RETURN_ROUTES, true) ? $target : 'tsa-management';
+        $target = \App\Support\ManageReturn::target($request, 'tsa', self::RETURN_ROUTES, 'hub.tsa-management');
 
         return redirect()->route($target, $params);
     }

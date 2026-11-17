@@ -32,7 +32,7 @@ class ProductSoftDeleteTest extends TestCase
         $product = Product::create(['display_name' => 'Widget', 'team' => 'SH Naturals', 'sort_order' => 1]);
         $product->delete();
 
-        $response = $this->get(route('product-management'));
+        $response = $this->get(route('hub.product-management'));
 
         $response->assertOk();
         $response->assertViewHas('trashedProducts', function ($trashed) use ($product) {
@@ -47,7 +47,7 @@ class ProductSoftDeleteTest extends TestCase
         $product = Product::create(['display_name' => 'Widget', 'team' => 'SH Naturals', 'sort_order' => 1]);
         $product->delete();
 
-        $response = $this->get(route('product-management'));
+        $response = $this->get(route('hub.product-management'));
 
         $response->assertOk();
         $response->assertViewHas('products', function ($products) use ($product) {
@@ -62,7 +62,7 @@ class ProductSoftDeleteTest extends TestCase
 
         $response = $this->post(route('product-management.restore', $product->id));
 
-        $response->assertRedirect(route('product-management'));
+        $response->assertRedirect(route('hub.product-management'));
         $this->assertDatabaseHas('products', ['id' => $product->id, 'deleted_at' => null]);
     }
 
@@ -83,7 +83,7 @@ class ProductSoftDeleteTest extends TestCase
 
         $response = $this->delete(route('product-management.force-delete', $product->id));
 
-        $response->assertRedirect(route('product-management'));
+        $response->assertRedirect(route('hub.product-management'));
         $this->assertDatabaseMissing('products', ['id' => $product->id]);
     }
 

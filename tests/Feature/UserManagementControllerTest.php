@@ -14,7 +14,7 @@ class UserManagementControllerTest extends TestCase
     {
         $this->actingAs(User::factory()->normal()->create());
 
-        $this->get(route('user-management'))->assertForbidden();
+        $this->get(route('hub.users'))->assertForbidden();
     }
 
     public function test_admin_can_view_the_user_list(): void
@@ -22,7 +22,7 @@ class UserManagementControllerTest extends TestCase
         $this->actingAs(User::factory()->admin()->create());
         User::factory()->normal()->create(['name' => 'Regular Person']);
 
-        $response = $this->get(route('user-management'));
+        $response = $this->get(route('hub.users'));
 
         $response->assertOk();
         $response->assertSee('Regular Person');
@@ -38,7 +38,7 @@ class UserManagementControllerTest extends TestCase
             'role'  => 'normal',
         ]);
 
-        $response->assertRedirect(route('user-management'));
+        $response->assertRedirect(route('hub.users'));
         $this->assertDatabaseHas('users', [
             'email'     => 'new.person@example.com',
             'role'      => 'normal',
@@ -70,7 +70,7 @@ class UserManagementControllerTest extends TestCase
             'role'  => 'admin',
         ]);
 
-        $response->assertRedirect(route('user-management'));
+        $response->assertRedirect(route('hub.users'));
         $this->assertDatabaseHas('users', ['email' => 'new.admin@example.com', 'role' => 'admin']);
     }
 
@@ -86,7 +86,7 @@ class UserManagementControllerTest extends TestCase
             'modules' => ['leads'],
         ]);
 
-        $response->assertRedirect(route('user-management'));
+        $response->assertRedirect(route('hub.users'));
         $this->assertDatabaseHas('users', ['id' => $target->id, 'name' => 'Renamed Person', 'role' => 'guest']);
     }
 
@@ -127,7 +127,7 @@ class UserManagementControllerTest extends TestCase
 
         $response = $this->patch(route('user-management.toggle-active', $target));
 
-        $response->assertRedirect(route('user-management'));
+        $response->assertRedirect(route('hub.users'));
         $this->assertDatabaseHas('users', ['id' => $target->id, 'is_active' => false]);
     }
 
@@ -164,7 +164,7 @@ class UserManagementControllerTest extends TestCase
 
         $response = $this->delete(route('user-management.destroy', $target));
 
-        $response->assertRedirect(route('user-management'));
+        $response->assertRedirect(route('hub.users'));
         $this->assertDatabaseMissing('users', ['id' => $target->id]);
     }
 
@@ -214,7 +214,7 @@ class UserManagementControllerTest extends TestCase
 
         $response = $this->delete(route('user-management.destroy', $targetSuperAdmin));
 
-        $response->assertRedirect(route('user-management'));
+        $response->assertRedirect(route('hub.users'));
         $this->assertDatabaseMissing('users', ['id' => $targetSuperAdmin->id]);
         $this->assertDatabaseHas('users', ['id' => $actingSuperAdmin->id]);
     }
@@ -242,7 +242,7 @@ class UserManagementControllerTest extends TestCase
 
         $response = $this->patch(route('user-management.toggle-active', $targetSuperAdmin));
 
-        $response->assertRedirect(route('user-management'));
+        $response->assertRedirect(route('hub.users'));
         $this->assertDatabaseHas('users', ['id' => $targetSuperAdmin->id, 'is_active' => false]);
         $this->assertDatabaseHas('users', ['id' => $actingSuperAdmin->id, 'is_active' => true]);
         $this->assertSame(1, User::activeSuperAdminCount());
@@ -272,7 +272,7 @@ class UserManagementControllerTest extends TestCase
         $normalUser  = User::factory()->normal()->create();
         $this->actingAs($actingAdmin);
 
-        $html = $this->get(route('user-management'))->assertOk()->getContent();
+        $html = $this->get(route('hub.users'))->assertOk()->getContent();
 
         $editBlockExists = function (User $user) use ($html) {
             $pos = strpos($html, 'data-id="' . $user->id . '"');

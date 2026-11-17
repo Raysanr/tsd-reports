@@ -4,509 +4,287 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Seller's Hub TSD</title>
+<script>
+    // Same saved theme as every module (localStorage 'theme'), applied before paint.
+    if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');
+</script>
 <link rel="icon" type="image/png" href="{{ asset('images/sellershub-favicon-32.png') }}" sizes="32x32">
 <link rel="icon" type="image/png" href="{{ asset('images/sellershub-favicon-64.png') }}" sizes="64x64">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+{{-- Hub redesign "Bright Bento" (2026-11-17): white top bar, headline, a
+     bento grid with TSD Leads Reports as the big accent tile, and the
+     partner systems in their own dark tile. Light and dark mode. --}}
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600;700&family=Fira+Sans:wght@400;500;600;700;800&display=swap');
-
     :root {
+        /* --primary / --primary-dark / --accent are overridden by the
+           personal accent (Settings → Appearance) in #themeColorVars below. */
         --primary:      #CA8A04;
         --primary-dark: #854D0E;
         --accent:       #A16207;
-        --bg:           #F5F3EC;
+
+        --bg:        #f3f4f6;
+        --surface:   #ffffff;
+        --surface-2: #f3f4f6;
+        --line:      #e5e7eb;
+        --ink:       #111827;
+        --ink-2:     #374151;
+        --muted:     #4b5563;
+        --hero-bg:   color-mix(in srgb, var(--primary) 38%, #ffffff);
+        --hero-ink:  #111827;
+        --hero-sub:  #1f2937;
+        --hero-btn:  rgba(255, 255, 255, 0.65);
+        --dark-tile: #111827;
+        --dark-row:  #1f2937;
+        --shadow-hover: 0 18px 40px -18px rgba(17, 24, 39, 0.28);
     }
+    html.dark {
+        color-scheme: dark;
+        --bg:        #0b0f17;
+        --surface:   #151b26;
+        --surface-2: #1e2532;
+        --line:      #263042;
+        --ink:       #f1f5f9;
+        --ink-2:     #cbd5e1;
+        --muted:     #94a3b8;
+        --hero-bg:   color-mix(in srgb, var(--primary) 32%, #151b26);
+        --hero-ink:  #f8fafc;
+        --hero-sub:  #e2e8f0;
+        --hero-btn:  rgba(255, 255, 255, 0.12);
+        --dark-tile: #1e2532;
+        --dark-row:  #263042;
+        --shadow-hover: 0 18px 40px -18px rgba(0, 0, 0, 0.7);
+    }
+
     * { box-sizing: border-box; }
-    html, body { height: 100%; }
+    html, body { min-height: 100%; }
     body {
         margin: 0;
-        min-height: 100vh;
-        display: flex;
-        flex-direction: column;
-        font-family: 'Fira Sans', ui-sans-serif, system-ui, sans-serif;
         background: var(--bg);
-        background-image: radial-gradient(circle, #E2DFD3 1px, transparent 1px);
-        background-size: 22px 22px;
-        color: #1e293b;
+        color: var(--ink);
+        font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; text-decoration: none; }
+    button { font: inherit; }
+    :focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 70%, transparent); outline-offset: 2px; }
+
+    .wrap { max-width: 1360px; margin: 0 auto; }
+    .page { padding: 20px clamp(16px, 3vw, 40px) 56px; }
+
+    /* ---------- Top bar ---------- */
+    .topbar {
+        display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+        background: var(--surface); border-radius: 18px; padding: 10px 12px 10px 16px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand img { width: 36px; height: 36px; object-fit: contain; }
+    .brand-name { font-weight: 800; font-size: 17px; letter-spacing: -0.02em; }
+    .brand-name span { color: var(--muted); font-weight: 700; }
+    .topnav { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+    .nav-btn {
+        height: 44px; padding: 0 14px; border-radius: 12px; border: 0; background: transparent;
+        display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 14px;
+        color: var(--ink-2); cursor: pointer;
+    }
+    .nav-btn:hover { background: var(--surface-2); color: var(--ink); }
+    .nav-btn svg { width: 12px; height: 12px; transition: transform 120ms ease; }
+    .icon-btn { width: 44px; padding: 0; justify-content: center; }
+    .icon-btn svg { width: 18px; height: 18px; }
+    .theme-toggle .icon-sun { display: none; color: #facc15; }
+    html.dark .theme-toggle .icon-sun { display: block; }
+    html.dark .theme-toggle .icon-moon { display: none; }
+    .divider { width: 1px; height: 24px; background: var(--line); margin: 0 6px; }
+    .me { display: flex; align-items: center; gap: 10px; padding-right: 4px; }
+    .avatar {
+        width: 36px; height: 36px; border-radius: 999px; background: var(--ink); color: var(--bg);
+        display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px;
+    }
+    .me-text { display: flex; flex-direction: column; line-height: 1.2; }
+    .me-name { font-weight: 700; font-size: 14px; }
+    .signout { border: 0; background: none; padding: 0; text-align: left; font-size: 12px; color: var(--muted); cursor: pointer; }
+    .signout:hover { color: var(--ink); text-decoration: underline; }
+
+    .manage { position: relative; }
+    .manage.open .nav-btn svg { transform: rotate(180deg); }
+    .manage-menu {
+        display: none; position: absolute; right: 0; top: calc(100% + 8px); z-index: 50; min-width: 230px;
+        background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 6px;
+        box-shadow: 0 18px 40px -12px rgba(15, 23, 42, 0.25);
+    }
+    .manage.open .manage-menu { display: block; }
+    .manage-menu a {
+        display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 10px;
+        font-weight: 600; font-size: 14px; color: var(--ink-2);
+    }
+    .manage-menu a:hover { background: var(--surface-2); color: var(--ink); }
+
+    /* ---------- Headline ---------- */
+    .intro {
+        padding: 56px 8px 36px; display: flex; flex-wrap: wrap; gap: 24px;
+        align-items: flex-end; justify-content: space-between;
+    }
+    .intro h1 {
+        flex: 1 1 520px; min-width: 0; margin: 0; font-weight: 800;
+        font-size: clamp(38px, 5.2vw, 68px); line-height: 1; letter-spacing: -0.04em;
+    }
+    .intro p { flex: 0 1 400px; margin: 0; font-size: 17px; line-height: 1.55; color: var(--muted); }
+    .alert {
+        margin: 0 0 16px; padding: 12px 16px; border-radius: 14px; font-size: 14px; font-weight: 600;
+        background: rgba(225, 29, 72, 0.12); color: #e11d48;
     }
 
-    /* Persistent top bar — its own strip, deliberately NOT part of the
-       centered hero below, so wayfinding (who's signed in / sign out) always
-       stays pinned near the top regardless of viewport height, instead of
-       drifting to wherever the centered content happens to land. */
-    header {
-        width: 100%;
-        padding: 28px clamp(24px, 4vw, 72px) 0;
+    /* ---------- Bento ---------- */
+    .bento {
+        display: grid; gap: 16px; grid-auto-flow: dense;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-auto-rows: minmax(250px, auto);
     }
-    .eyebrow {
-        font-family: 'Fira Code', ui-monospace, monospace;
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.14em;
-        color: var(--accent);
-        text-transform: uppercase;
-        margin: 0;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-    }
-    .eyebrow .greeting {
-        color: #94a3b8;
-        font-weight: 600;
-        letter-spacing: normal;
-        text-transform: none;
-    }
-    .eyebrow .manage-users {
-        color: var(--accent);
-        text-decoration: none;
-        font-weight: 700;
-    }
-    .eyebrow .manage-users:hover { color: var(--primary-dark); }
+    @media (max-width: 1100px) { .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 640px)  { .bento { grid-template-columns: minmax(0, 1fr); } .wide, .hero { grid-column: auto !important; grid-row: auto !important; } }
 
-    /* Management dropdown — same eyebrow row, opens down on click since
-       this bar sits at the very top of the viewport (no room to hover-open
-       upward, and click keeps it usable on touch). */
-    .manage-dropdown { position: relative; display: inline-block; }
-    .manage-dropdown-toggle {
-        font-family: inherit;
-        font-size: inherit;
-        font-weight: 700;
-        letter-spacing: inherit;
-        text-transform: inherit;
-        background: none;
-        border: none;
-        color: var(--accent);
-        cursor: pointer;
-        padding: 0;
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
+    .tile {
+        position: relative; border-radius: 28px; background: var(--surface); padding: 28px;
+        display: flex; flex-direction: column; gap: 12px;
+        transition: transform 180ms ease, box-shadow 180ms ease;
     }
-    .manage-dropdown-toggle:hover { color: var(--primary-dark); }
-    .manage-dropdown-toggle svg { width: 11px; height: 11px; transition: transform 120ms ease; }
-    .manage-dropdown.open .manage-dropdown-toggle svg { transform: rotate(180deg); }
-    .manage-dropdown-menu {
-        display: none;
-        position: absolute;
-        top: calc(100% + 10px);
-        left: 0;
-        min-width: 200px;
-        background: #fff;
-        border-radius: 10px;
-        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
-        padding: 6px;
-        z-index: 10;
+    a.tile:hover { transform: translateY(-4px); box-shadow: var(--shadow-hover); }
+    a.tile:hover .arrow { background: var(--ink); color: var(--bg); }
+    .tile-top { display: flex; justify-content: space-between; align-items: center; }
+    .tile-icon {
+        width: 52px; height: 52px; border-radius: 16px; display: inline-flex; align-items: center; justify-content: center;
+        background: color-mix(in srgb, var(--tone) 14%, var(--surface));
+        color: var(--tone-ink);
     }
-    .manage-dropdown.open .manage-dropdown-menu { display: block; }
-    .manage-dropdown-menu a {
-        display: block;
-        padding: 9px 12px;
-        border-radius: 6px;
-        font-family: 'Fira Sans', ui-sans-serif, system-ui, sans-serif;
-        font-size: 14px;
-        font-weight: 600;
-        letter-spacing: normal;
-        text-transform: none;
-        color: #334155;
-        text-decoration: none;
+    html.dark .tile-icon { background: color-mix(in srgb, var(--tone) 24%, transparent); color: color-mix(in srgb, var(--tone) 55%, #ffffff); }
+    .tile-icon svg { width: 24px; height: 24px; }
+    .arrow {
+        width: 40px; height: 40px; border-radius: 999px; background: var(--surface-2); color: var(--ink);
+        display: inline-flex; align-items: center; justify-content: center; transition: background 180ms ease, color 180ms ease;
     }
-    .manage-dropdown-menu a:hover { background: var(--bg); color: var(--primary-dark); }
-    .eyebrow form { margin: 0; }
-    .eyebrow .signout {
-        font-family: inherit;
-        font-size: inherit;
-        font-weight: inherit;
-        background: none;
-        border: none;
-        color: #94a3b8;
-        cursor: pointer;
-        padding: 0;
-        text-decoration: underline;
-        text-underline-offset: 2px;
+    .arrow svg { width: 16px; height: 16px; }
+    .tag { margin-top: auto; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tone-ink); }
+    html.dark .tag { color: color-mix(in srgb, var(--tone) 55%, #ffffff); }
+    .tile h3 { margin: 0; font-weight: 800; font-size: 24px; letter-spacing: -0.03em; line-height: 1.15; }
+    .tile p { margin: 0; font-size: 14px; line-height: 1.55; color: var(--muted); }
+    .soon {
+        width: fit-content; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+        padding: 4px 10px; border-radius: 999px; background: var(--surface-2); color: var(--muted);
     }
-    .eyebrow .signout:hover { color: var(--accent); }
+    .tile.coming-soon { opacity: 0.7; }
 
-    /* The hero + card grid fills whatever vertical space the top bar
-       doesn't use and centers itself in it — on a tall viewport this is the
-       difference between a small block stranded at the top and a
-       composition that actually occupies the screen it's given. */
-    main {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        width: 100%;
-        padding: 48px clamp(24px, 4vw, 72px);
-    }
-    .brand {
-        display: flex;
-        align-items: center;
-        gap: 28px;
-    }
-    .brand-logo {
-        width: clamp(64px, 8vw, 112px);
-        height: auto;
-        flex-shrink: 0;
-    }
-    h1 {
-        font-size: clamp(48px, 6.5vw, 88px);
-        font-weight: 800;
-        line-height: 1.02;
-        margin: 0;
-        color: #0f172a;
-        letter-spacing: -0.015em;
-    }
-    h1 .gold { color: var(--primary); }
-    @media (max-width: 760px) {
-        .brand { gap: 18px; }
-        .brand-logo { width: 56px; }
-    }
-    .subtitle {
-        font-size: 20px;
-        color: #64748b;
-        margin: 26px 0 0;
-        max-width: 620px;
-        line-height: 1.5;
-    }
-    /* Hero row — brand + subtitle on the left, the Partners card on the
-       right. Stacks on narrow screens. */
-    .hero {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 40px;
-    }
-    @media (max-width: 900px) {
-        .hero { flex-direction: column; align-items: flex-start; }
-    }
+    /* Leads Reports: the big accent tile. */
+    .hero { grid-column: span 2; grid-row: span 2; background: var(--hero-bg); color: var(--hero-ink); padding: 36px; gap: 16px; }
+    .hero .tile-top span:first-child { font-size: 13px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+    .hero .arrow { width: 48px; height: 48px; background: var(--hero-btn); color: var(--hero-ink); }
+    .hero .arrow svg { width: 20px; height: 20px; }
+    a.hero:hover .arrow { background: var(--hero-ink); color: var(--hero-bg); }
+    .hero .bars { margin-top: 12px; width: 120px; height: 96px; }
+    .hero h2 { margin: auto 0 0; max-width: 7.5em; font-weight: 800; font-size: clamp(34px, 4vw, 54px); letter-spacing: -0.04em; line-height: 1; }
+    .hero p { margin: 0; max-width: 460px; font-size: 16px; line-height: 1.55; color: var(--hero-sub); }
 
-    /* Partners card — each partner (MLC, M&J, PEAK.CO) runs its own
-       deployment of this app; the card only links out to them. Hover
-       (or focus / tap) expands the list with a staggered reveal. */
-    .partners { position: relative; flex-shrink: 0; }
-    .partners-card {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        padding: 16px 20px;
-        background: #fff;
-        border: 1px solid #E7E3D6;
-        border-radius: 14px;
-        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-        cursor: pointer;
-        font: inherit;
-        color: inherit;
-        text-align: left;
-        transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease;
+    /* Partners: their own dark tile, links open each partner's app. */
+    .wide { grid-column: span 2; }
+    .partners { background: var(--dark-tile); color: #f9fafb; gap: 16px; }
+    .partners-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+    .partners-head h2 { margin: 0; font-weight: 800; font-size: 22px; letter-spacing: -0.02em; }
+    .partners-head span { font-size: 13px; color: #9ca3af; }
+    .partner-list { margin-top: auto; display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); }
+    .partner {
+        display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 18px;
+        background: var(--dark-row); color: #f9fafb; transition: background 150ms ease;
     }
-    .partners:hover .partners-card,
-    .partners:has(:focus-visible) .partners-card,
-    .partners.open .partners-card {
-        border-color: var(--primary);
-        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.10);
-        transform: translateY(-2px);
-    }
-    .partners-icon {
-        width: 40px; height: 40px;
-        border-radius: 10px;
-        display: grid; place-items: center;
-        background: color-mix(in srgb, var(--primary) 12%, transparent);
-        color: var(--primary-dark);
-    }
-    .partners-icon svg { width: 22px; height: 22px; }
-    .partners-label {
-        font-family: 'Fira Code', ui-monospace, monospace;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.14em;
-        color: var(--accent);
-        text-transform: uppercase;
-        display: block;
-    }
-    .partners-title { font-size: 17px; font-weight: 700; color: #0f172a; display: block; margin-top: 2px; }
-    .partners-chevron { width: 14px; height: 14px; color: #94a3b8; transition: transform 250ms ease; }
-    .partners:hover .partners-chevron,
-    .partners:has(:focus-visible) .partners-chevron,
-    .partners.open .partners-chevron { transform: rotate(180deg); color: var(--primary); }
-
-    /* padding-top bridges the gap so the cursor can travel card → menu
-       without the hover dropping. */
-    .partners-menu {
-        position: absolute;
-        top: 100%;
-        right: 0;
-        min-width: 100%;
-        width: 260px;
-        padding-top: 10px;
-        z-index: 20;
-        visibility: hidden;
-        pointer-events: none;
-    }
-    .partners-menu-inner {
-        background: #fff;
-        border-radius: 14px;
-        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
-        padding: 8px;
-        opacity: 0;
-        transform: translateY(-8px) scale(0.97);
-        transform-origin: top right;
-        transition: opacity 200ms ease, transform 250ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
-    }
-    .partners:hover .partners-menu,
-    .partners:has(:focus-visible) .partners-menu,
-    .partners.open .partners-menu { visibility: visible; pointer-events: auto; }
-    .partners:hover .partners-menu-inner,
-    .partners:has(:focus-visible) .partners-menu-inner,
-    .partners.open .partners-menu-inner { opacity: 1; transform: none; }
-
-    .partner-link {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 10px 12px;
-        border-radius: 10px;
-        text-decoration: none;
-        color: #1e293b;
-        opacity: 0;
-        transform: translateX(10px);
-        transition: background 150ms ease, opacity 250ms ease, transform 300ms ease;
-    }
-    .partners:hover .partner-link,
-    .partners:has(:focus-visible) .partner-link,
-    .partners.open .partner-link { opacity: 1; transform: none; }
-    .partners:hover .partner-link:nth-child(2), .partners:has(:focus-visible) .partner-link:nth-child(2), .partners.open .partner-link:nth-child(2) { transition-delay: 0ms, 60ms, 60ms; }
-    .partners:hover .partner-link:nth-child(3), .partners:has(:focus-visible) .partner-link:nth-child(3), .partners.open .partner-link:nth-child(3) { transition-delay: 0ms, 120ms, 120ms; }
-    .partner-link:hover, .partner-link:focus-visible { background: var(--bg); outline: none; }
+    .partner:hover { background: color-mix(in srgb, var(--dark-row) 70%, #ffffff 10%); }
     .partner-badge {
-        width: 36px; height: 36px;
-        border-radius: 9px;
-        display: grid; place-items: center;
-        font-family: 'Fira Code', ui-monospace, monospace;
-        font-size: 11px;
-        font-weight: 700;
-        color: #fff;
-        background: var(--partner-color);
-        flex-shrink: 0;
+        width: 40px; height: 40px; flex: none; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center;
+        font-weight: 800; font-size: 12px; color: #fff; background: var(--partner-color);
     }
     .partner-name { font-weight: 700; font-size: 15px; display: block; }
-    .partner-sub { font-size: 12px; color: #94a3b8; display: block; }
-    .partner-arrow { margin-left: auto; color: #cbd5e1; transition: transform 150ms ease, color 150ms ease; }
-    .partner-link:hover .partner-arrow { transform: translateX(3px); color: var(--partner-color); }
-    @media (max-width: 900px) {
-        .partners-menu { left: 0; right: auto; }
-        .partners-menu-inner { transform-origin: top left; }
+    .partner-sub { font-size: 12px; color: #9ca3af; display: block; }
+    .partner-out { margin-left: auto; color: #6b7280; }
+
+    @media (max-width: 640px) {
+        .intro { padding-top: 36px; }
+        .hero { padding: 28px; }
     }
     @media (prefers-reduced-motion: reduce) {
-        .partners-card, .partners-menu-inner, .partner-link, .partners-chevron { transition: none; }
-    }
-
-    .section-label {
-        font-family: 'Fira Code', ui-monospace, monospace;
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.14em;
-        color: #94a3b8;
-        text-transform: uppercase;
-        margin: 76px 0 24px;
-    }
-    .grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 28px;
-    }
-    @media (max-width: 760px) {
-        .grid { grid-template-columns: 1fr; }
-        header { padding: 24px 24px 0; }
-        main { padding: 32px 24px; }
-    }
-    .card {
-        background: #fff;
-        border-radius: 16px;
-        border-left: 4px solid var(--card-accent, #cbd5e1);
-        padding: 44px 40px;
-        text-decoration: none;
-        color: inherit;
-        display: flex;
-        flex-direction: column;
-        min-height: 260px;
-        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-        transition: transform 150ms ease, box-shadow 150ms ease;
-    }
-    a.card:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 16px 36px rgba(15, 23, 42, 0.1);
-    }
-    .card-icon {
-        width: 56px;
-        height: 56px;
-        border-radius: 12px;
-        background: var(--card-accent-soft, rgba(202, 138, 4, 0.12));
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--card-accent, #94a3b8);
-        margin-bottom: 24px;
-    }
-    .card-icon svg { width: 26px; height: 26px; }
-    .card-tag {
-        font-family: 'Fira Code', ui-monospace, monospace;
-        font-size: 11.5px;
-        font-weight: 700;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-        color: var(--card-accent, #94a3b8);
-        display: block;
-        margin-bottom: 12px;
-    }
-    .card h3 {
-        font-size: 26px;
-        font-weight: 700;
-        margin: 0 0 14px;
-        color: #0f172a;
-        letter-spacing: -0.01em;
-    }
-    .card p {
-        font-size: 15px;
-        color: #64748b;
-        line-height: 1.6;
-        margin: 0;
-        max-width: 46ch;
-    }
-    .card-open {
-        font-family: 'Fira Code', ui-monospace, monospace;
-        font-size: 13.5px;
-        font-weight: 600;
-        color: #334155;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        margin-top: auto;
-        padding-top: 28px;
-    }
-
-    /* Coming-soon state (2026-08-12): same card shape/rhythm as a real
-       system card so the grid doesn't visually lurch once this becomes a
-       live link — just not clickable, and says so, rather than silently
-       omitted (which would read as "we forgot this" more than "not yet"). */
-    .card.coming-soon {
-        cursor: default;
-        filter: grayscale(0.4);
-    }
-    .card.coming-soon:hover {
-        transform: none;
-        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-    }
-    .coming-soon-badge {
-        font-family: 'Fira Code', ui-monospace, monospace;
-        font-size: 10.5px;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: #64748b;
-        background: #e2e8f0;
-        padding: 3px 9px;
-        border-radius: 999px;
-        display: inline-flex;
-        align-items: center;
-        margin-top: auto;
-        width: fit-content;
+        .tile, .arrow, .partner { transition: none; }
+        a.tile:hover { transform: none; }
     }
 </style>
-{{-- Personal accent (Settings → Appearance, 2026-10-30) — the other system
-     cards keep their own colors so they stay easy to tell apart. --}}
+{{-- Personal accent (Settings → Appearance, 2026-10-30). --}}
 @php $hubThemeCss = \App\Support\ThemeColor::hubCss(); @endphp
 @if($hubThemeCss)<style id="themeColorVars">{!! $hubThemeCss !!}</style>@endif
     @include('partials.page-nav')
 </head>
 <body>
-<header>
-    <div class="eyebrow">
-        <span>Internal Tools</span>
-        <span class="greeting">
-            @if(\App\Support\NormalUserPages::anyVisible(['user-management', 'tsa-management', 'product-management']))
-            <span class="manage-dropdown" data-manage-dropdown>
-                <button type="button" class="manage-dropdown-toggle" aria-haspopup="true" aria-expanded="false">
-                    Management
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6"/></svg>
-                </button>
-                <span class="manage-dropdown-menu">
-                    @if(\App\Support\NormalUserPages::canSee('user-management'))<a href="{{ route('hub.users') }}">User Management</a>@endif
-                    @if(\App\Support\NormalUserPages::canSee('tsa-management'))<a href="{{ route('hub.tsa-management') }}">TSA Management</a>@endif
-                    @if(\App\Support\NormalUserPages::canSee('product-management'))<a href="{{ route('hub.product-management') }}">Product Management</a>@endif
-                </span>
-            </span>
-            ·
-            @endif
-            Signed in as {{ auth()->user()->name }} ·
-            <form method="POST" action="{{ route('logout') }}" style="display:inline">@csrf<button type="submit" class="signout">Sign out</button></form>
-        </span>
+@php
+    $arrowSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M7 17L17 7M8 7h9v9"/></svg>';
+    // Partners — each runs its own Railway deployment (separate repo,
+    // database and login); this only links out. Every role sees it
+    // (2026-11-03, explicit request).
+    $partners = [
+        ['name' => 'PEAK.CO', 'badge' => 'PK', 'color' => '#0f766e', 'url' => 'https://peak-co-production.up.railway.app'],
+        ['name' => 'M&J',     'badge' => 'MJ', 'color' => '#7c3aed', 'url' => 'https://mj-leads-production.up.railway.app'],
+        ['name' => 'MLC',     'badge' => 'MLC', 'color' => '#2563eb', 'url' => 'https://mlc-leads-production.up.railway.app'],
+    ];
+@endphp
+<div class="page">
+<header class="wrap topbar">
+    <div class="brand">
+        <img src="{{ asset('images/sellershub-logo.png') }}" alt="">
+        <span class="brand-name">Seller's Hub <span>TSD</span></span>
     </div>
-</header>
-<main>
-    <div class="hero">
-        <div>
-            <div class="brand">
-                <img src="{{ asset('images/sellershub-logo.png') }}" alt="Seller's Hub" class="brand-logo">
-                <h1>Seller's Hub<br><span class="gold">TSD</span></h1>
-            </div>
-            <p class="subtitle">Everything running the telesales operation, in one place — reporting, TSA performance, and lead assignment.</p>
-        </div>
-
-        {{-- Partners — each runs its own Railway deployment (separate repo,
-             database and login); this only links out. Every role sees it
-             (2026-11-03, explicit request). --}}
-        @php
-            $partners = [
-                ['name' => 'PEAK.CO', 'badge' => 'PK', 'color' => '#0f766e', 'url' => 'https://peak-co-production.up.railway.app'],
-                ['name' => 'M&J',     'badge' => 'MJ', 'color' => '#7c3aed', 'url' => 'https://mj-leads-production.up.railway.app'],
-                ['name' => 'MLC',     'badge' => 'MLC', 'color' => '#2563eb', 'url' => 'https://mlc-leads-production.up.railway.app'],
-            ];
-        @endphp
-        <div class="partners" data-partners>
-            <button type="button" class="partners-card" aria-haspopup="true" aria-expanded="false">
-                <span class="partners-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"/></svg>
-                </span>
-                <span>
-                    <span class="partners-label">Partners</span>
-                    <span class="partners-title">{{ count($partners) }} partner systems</span>
-                </span>
-                <svg class="partners-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6"/></svg>
+    <nav class="topnav" aria-label="Account">
+        @if(\App\Support\NormalUserPages::anyVisible(['user-management', 'tsa-management', 'product-management']))
+        <div class="manage" data-manage-dropdown>
+            <button type="button" class="nav-btn manage-dropdown-toggle" aria-haspopup="true" aria-expanded="false">
+                Management
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6"/></svg>
             </button>
-            <div class="partners-menu">
-                <div class="partners-menu-inner">
-                    @foreach($partners as $p)
-                    <a class="partner-link" style="--partner-color:{{ $p['color'] }}" href="{{ $p['url'] }}" target="_blank" rel="noopener">
-                        <span class="partner-badge">{{ $p['badge'] }}</span>
-                        <span>
-                            <span class="partner-name">{{ $p['name'] }}</span>
-                            <span class="partner-sub">Leads Reports</span>
-                        </span>
-                        <span class="partner-arrow">↗</span>
-                    </a>
-                    @endforeach
-                </div>
+            <div class="manage-menu">
+                @if(\App\Support\NormalUserPages::canSee('user-management'))<a href="{{ route('hub.users') }}">User Management</a>@endif
+                @if(\App\Support\NormalUserPages::canSee('tsa-management'))<a href="{{ route('hub.tsa-management') }}">TSA Management</a>@endif
+                @if(\App\Support\NormalUserPages::canSee('product-management'))<a href="{{ route('hub.product-management') }}">Product Management</a>@endif
             </div>
         </div>
-    </div>
+        @endif
+        <button type="button" id="themeToggle" class="nav-btn icon-btn theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
+            <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+            <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+        </button>
+        <span class="divider" aria-hidden="true"></span>
+        <div class="me">
+            <span class="avatar" aria-hidden="true">{{ mb_strtoupper(mb_substr(auth()->user()->name, 0, 1)) }}</span>
+            <span class="me-text">
+                <span class="me-name">{{ auth()->user()->name }}</span>
+                <form method="POST" action="{{ route('logout') }}">@csrf<button type="submit" class="signout">Sign out</button></form>
+            </span>
+        </div>
+    </nav>
+</header>
 
-    <p class="section-label">Select a system</p>
+<main class="wrap">
+    <section class="intro">
+        <h1>Where do you want<br>to work today?</h1>
+        <p>Everything running the telesales operation, in one place — reporting, TSA performance, and lead assignment.</p>
+    </section>
+
     @if(session('error'))
-    <p role="alert" style="margin:0 0 16px;padding:10px 14px;border-radius:10px;background:rgba(225,29,72,0.12);color:#e11d48;font-size:14px;font-weight:600">{{ session('error') }}</p>
+    <p role="alert" class="alert">{{ session('error') }}</p>
     @endif
-    <div class="grid">
 
+    <div class="bento">
         @if(auth()->user()->canAccessModule('leads'))
-        <a class="card" style="--card-accent:var(--primary); --card-accent-soft:color-mix(in srgb, var(--primary) 12%, transparent)" href="{{ route('dashboard') }}">
-            <div class="card-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>
-                </svg>
+        <a class="tile hero" href="{{ route('dashboard') }}">
+            <div class="tile-top">
+                <span>Reporting</span>
+                <span class="arrow">{!! $arrowSvg !!}</span>
             </div>
-            <span class="card-tag">Reporting</span>
-            <h3>TSD Leads Reports</h3>
+            <svg class="bars" viewBox="0 0 120 96" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><rect x="6" y="56" width="20" height="34" rx="5"/><rect x="36" y="36" width="20" height="54" rx="5"/><rect x="66" y="46" width="20" height="44" rx="5"/><rect x="96" y="10" width="20" height="80" rx="5"/></svg>
+            <h2>TSD Leads Reports</h2>
             <p>Pancake POS sales reporting — leads, TSA performance, upsell tracking, and analytics.</p>
-            <span class="card-open">Open →</span>
         </a>
         @endif
 
@@ -517,91 +295,89 @@
              "Coming soon" in production until the call-recording storage
              question is resolved). --}}
         @if(auth()->user()->canAccessModule('calls'))
+        @php $callIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M22 16.9v3a2 2 0 01-2.2 2 19.8 19.8 0 01-8.6-3.1 19.5 19.5 0 01-6-6A19.8 19.8 0 012.1 4.2 2 2 0 014.1 2h3a2 2 0 012 1.7c.1 1 .4 1.9.7 2.8a2 2 0 01-.5 2.1L8 9.9a16 16 0 006 6l1.3-1.3a2 2 0 012.1-.4c.9.3 1.8.6 2.8.7a2 2 0 011.7 2z"/></svg>'; @endphp
         @if(config('services.call_tracker.enabled'))
-        <a class="card" style="--card-accent:#0d9488; --card-accent-soft:rgba(13,148,136,0.12)" href="{{ route('calls.dashboard') }}">
-            <div class="card-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
-                </svg>
-            </div>
-            <span class="card-tag">Operations</span>
+        <a class="tile" style="--tone:#0d9488; --tone-ink:#0f766e" href="{{ route('calls.dashboard') }}">
+            <div class="tile-top"><span class="tile-icon">{!! $callIcon !!}</span><span class="arrow">{!! $arrowSvg !!}</span></div>
+            <span class="tag">Operations</span>
             <h3>TSD Call Tracker</h3>
             <p>Pancake-connected round-robin lead assignment with free click-to-call.</p>
-            <span class="card-open">Open →</span>
         </a>
         @else
-        <div class="card coming-soon" style="--card-accent:#0d9488; --card-accent-soft:rgba(13,148,136,0.12)">
-            <div class="card-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
-                </svg>
-            </div>
-            <span class="card-tag">Operations</span>
+        <div class="tile coming-soon" style="--tone:#0d9488; --tone-ink:#0f766e">
+            <div class="tile-top"><span class="tile-icon">{!! $callIcon !!}</span><span class="soon">Coming soon</span></div>
+            <span class="tag">Operations</span>
             <h3>TSD Call Tracker</h3>
             <p>Pancake-connected round-robin lead assignment with free click-to-call.</p>
-            <span class="coming-soon-badge">Coming soon</span>
         </div>
         @endif
         @endif
 
-        {{-- Opened up to TSAs too (explicit request, 2026-10-07: "make it
-             the data management module is visible for the TSA's (NORMAL
-             USERS)" — reverses the original 2026-09-23 admin-only
-             decision). Cost Breakdown itself (real payroll/salary data)
-             stays admin-only inside the module — see data.blade.php's
-             own sidebar link for that gate. --}}
+        {{-- Opened up to TSAs too (explicit request, 2026-10-07). Cost
+             Breakdown itself stays admin-only inside the module. --}}
         @if(auth()->user()->canAccessModule('data'))
-        <a class="card" style="--card-accent:#7c3aed; --card-accent-soft:rgba(124,58,237,0.12)" href="{{ route('data.home') }}">
-            <div class="card-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.125C3 6.504 3.504 6 4.125 6h4.243c.3 0 .587.12.8.331l1.383 1.383c.211.211.498.331.8.331h8.524c.621 0 1.125.504 1.125 1.125v9.705c0 .621-.504 1.125-1.125 1.125H4.125A1.125 1.125 0 013 18.875V7.125z"/>
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 17.25v-3M12 17.25v-5.25M15.75 17.25v-7.5"/>
-                </svg>
+        <a class="tile" style="--tone:#7c3aed; --tone-ink:#6d28d9" href="{{ route('data.home') }}">
+            <div class="tile-top">
+                <span class="tile-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18M7 15l4-4 3 3 5-6"/></svg></span>
+                <span class="arrow">{!! $arrowSvg !!}</span>
             </div>
-            <span class="card-tag">Finance</span>
+            <span class="tag">Finance</span>
             <h3>TSD Data Management</h3>
             <p>Editable P&amp;L targets and planning projections — department, shift, and per-TSA goals.</p>
-            <span class="card-open">Open →</span>
         </a>
         @endif
 
         {{-- Partners Data Management (2026-10-29) — Data Management on the
-             partners' synced data (App\Support\DataSet). Every role sees it
-             (2026-11-03, explicit request). --}}
+             partners' synced data (App\Support\DataSet). --}}
         @if(auth()->user()->canAccessModule('partners'))
-        <a class="card" style="--card-accent:#db2777; --card-accent-soft:rgba(219,39,119,0.12)" href="{{ route('data.home', ['dm' => 'partners']) }}">
-            <div class="card-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6"/>
-                </svg>
+        <a class="tile" style="--tone:#db2777; --tone-ink:#be185d" href="{{ route('data.home', ['dm' => 'partners']) }}">
+            <div class="tile-top">
+                <span class="tile-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path stroke-linecap="round" d="M3 20a6 6 0 0112 0M14 20a4.5 4.5 0 017-3.7"/></svg></span>
+                <span class="arrow">{!! $arrowSvg !!}</span>
             </div>
-            <span class="card-tag">Finance</span>
+            <span class="tag">Finance</span>
             <h3>Partners Data Management</h3>
-            <p>Data Management for PEAK.CO, M&amp;J and MLC — their leads and orders, your costs and projections, per partner or all together.</p>
-            <span class="card-open">Open →</span>
+            <p>Data Management for PEAK.CO, M&amp;J and MLC — their leads and orders, your costs and projections.</p>
         </a>
         @endif
 
-        {{-- TSD Archiving System (explicit request, 2026-10-19). Admin-only
-             like its route group — it holds HR records (contracts, IDs).
-             Route::has(): hidden until the archive routes are deployed. --}}
+        {{-- TSD Archiving System (explicit request, 2026-10-19). Holds HR
+             records. Route::has(): hidden until the archive routes are deployed. --}}
         @if(\App\Support\NormalUserPages::canSeeModule('archive') && Route::has('archive.overview') && \App\Support\NormalUserPages::firstVisibleArchivePage())
-        <a class="card" style="--card-accent:#0284c7; --card-accent-soft:rgba(2,132,199,0.12)" href="{{ route(\App\Support\NormalUserPages::firstVisibleArchivePage() ?? 'archive.overview') }}">
-            <div class="card-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/>
-                </svg>
+        <a class="tile" style="--tone:#0284c7; --tone-ink:#0369a1" href="{{ route(\App\Support\NormalUserPages::firstVisibleArchivePage() ?? 'archive.overview') }}">
+            <div class="tile-top">
+                <span class="tile-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path stroke-linecap="round" d="M5 9v10a1 1 0 001 1h12a1 1 0 001-1V9M10 13h4"/></svg></span>
+                <span class="arrow">{!! $arrowSvg !!}</span>
             </div>
-            <span class="card-tag">Organization</span>
+            <span class="tag">Organization</span>
             <h3>TSD Archiving System</h3>
             <p>Department structure chart, people directory, file archive, and the TSD Scoreboard of delivered sales.</p>
-            <span class="card-open">Open →</span>
         </a>
         @endif
 
+        <section class="tile wide partners" aria-labelledby="partnersTitle">
+            <div class="partners-head">
+                <h2 id="partnersTitle">Partner systems</h2>
+                <span>Each opens its own Leads Reports in a new tab</span>
+            </div>
+            <div class="partner-list">
+                @foreach($partners as $p)
+                <a class="partner" style="--partner-color:{{ $p['color'] }}" href="{{ $p['url'] }}" target="_blank" rel="noopener">
+                    <span class="partner-badge">{{ $p['badge'] }}</span>
+                    <span><span class="partner-name">{{ $p['name'] }}</span><span class="partner-sub">Leads Reports</span></span>
+                    <span class="partner-out" aria-hidden="true">↗</span>
+                </a>
+                @endforeach
+            </div>
+        </section>
     </div>
 </main>
+</div>
 <script>
+    document.getElementById('themeToggle').addEventListener('click', function () {
+        var isDark = document.documentElement.classList.toggle('dark');
+        localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    });
     document.querySelectorAll('[data-manage-dropdown]').forEach(function (dropdown) {
         var toggle = dropdown.querySelector('.manage-dropdown-toggle');
         toggle.addEventListener('click', function (e) {
@@ -610,23 +386,19 @@
             toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
         });
     });
-    // Partners — hover opens it on desktop; a tap toggles it on touch.
-    document.querySelectorAll('[data-partners]').forEach(function (box) {
-        var card = box.querySelector('.partners-card');
-        card.addEventListener('click', function (e) {
-            e.stopPropagation();
-            var isOpen = box.classList.toggle('open');
-            card.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-        });
-    });
     document.addEventListener('click', function () {
-        document.querySelectorAll('[data-partners].open').forEach(function (box) {
-            box.classList.remove('open');
-            box.querySelector('.partners-card').setAttribute('aria-expanded', 'false');
-        });
         document.querySelectorAll('[data-manage-dropdown].open').forEach(function (dropdown) {
             dropdown.classList.remove('open');
             dropdown.querySelector('.manage-dropdown-toggle').setAttribute('aria-expanded', 'false');
+        });
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape') return;
+        document.querySelectorAll('[data-manage-dropdown].open').forEach(function (dropdown) {
+            dropdown.classList.remove('open');
+            var toggle = dropdown.querySelector('.manage-dropdown-toggle');
+            toggle.setAttribute('aria-expanded', 'false');
+            toggle.focus();
         });
     });
 </script>

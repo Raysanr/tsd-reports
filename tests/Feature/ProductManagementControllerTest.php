@@ -24,7 +24,7 @@ class ProductManagementControllerTest extends TestCase
      *  report) — this is a display-only change scoped to this page. */
     public function test_index_returns_a_flat_list_of_every_product(): void
     {
-        $response = $this->get(route('product-management'));
+        $response = $this->get(route('hub.product-management'));
 
         $response->assertOk();
         $response->assertViewHas('products');
@@ -45,7 +45,7 @@ class ProductManagementControllerTest extends TestCase
             'match_keyword' => '',
         ]);
 
-        $response->assertRedirect(route('product-management'));
+        $response->assertRedirect(route('hub.product-management'));
         $this->assertDatabaseHas('products', [
             'display_name'  => 'NutriLay',
             'match_keyword' => null,
@@ -63,7 +63,7 @@ class ProductManagementControllerTest extends TestCase
             'match_keyword' => 'SINUXYL',
         ]);
 
-        $response->assertRedirect(route('product-management'));
+        $response->assertRedirect(route('hub.product-management'));
         $this->assertDatabaseHas('products', [
             'id'            => $product->id,
             'display_name'  => 'Sinuxyl Nasal Spray',
@@ -81,7 +81,7 @@ class ProductManagementControllerTest extends TestCase
 
         $response = $this->delete(route('product-management.destroy', $product));
 
-        $response->assertRedirect(route('product-management'));
+        $response->assertRedirect(route('hub.product-management'));
         $this->assertSoftDeleted('products', ['id' => $product->id]);
         $this->assertDatabaseMissing('products', ['id' => $product->id, 'deleted_at' => null]);
     }
@@ -93,7 +93,7 @@ class ProductManagementControllerTest extends TestCase
 
         $response = $this->patch(route('product-management.toggle-hidden', $product));
 
-        $response->assertRedirect(route('product-management'));
+        $response->assertRedirect(route('hub.product-management'));
         $this->assertDatabaseHas('products', ['id' => $product->id, 'is_hidden' => true]);
     }
 
@@ -113,7 +113,7 @@ class ProductManagementControllerTest extends TestCase
         $product->is_hidden = true;
         $product->save();
 
-        $response = $this->get(route('product-management'));
+        $response = $this->get(route('hub.product-management'));
 
         $response->assertOk();
         $response->assertSee('Hidden');
@@ -125,7 +125,7 @@ class ProductManagementControllerTest extends TestCase
         // substring "Hidden" — the toggle button's own CSS class
         // ("toggleHiddenBtn") contains that substring on every row regardless
         // of state, which would make a plain assertDontSee('Hidden') always fail.
-        $response = $this->get(route('product-management'));
+        $response = $this->get(route('hub.product-management'));
 
         $response->assertOk();
         $response->assertDontSee('>Hidden</span>', false);
@@ -140,7 +140,7 @@ class ProductManagementControllerTest extends TestCase
             'action' => 'hide',
         ]);
 
-        $response->assertRedirect(route('product-management'));
+        $response->assertRedirect(route('hub.product-management'));
         foreach ($ids as $id) {
             $this->assertDatabaseHas('products', ['id' => $id, 'is_hidden' => true]);
         }
@@ -156,7 +156,7 @@ class ProductManagementControllerTest extends TestCase
             'action' => 'unhide',
         ]);
 
-        $response->assertRedirect(route('product-management'));
+        $response->assertRedirect(route('hub.product-management'));
         foreach ($ids as $id) {
             $this->assertDatabaseHas('products', ['id' => $id, 'is_hidden' => false]);
         }
@@ -173,7 +173,7 @@ class ProductManagementControllerTest extends TestCase
             'team'   => 'Eyecare Team',
         ]);
 
-        $response->assertRedirect(route('product-management'));
+        $response->assertRedirect(route('hub.product-management'));
         foreach ($ids as $id) {
             $this->assertDatabaseHas('products', ['id' => $id, 'team' => 'Eyecare Team']);
         }
@@ -188,7 +188,7 @@ class ProductManagementControllerTest extends TestCase
             'action' => 'delete',
         ]);
 
-        $response->assertRedirect(route('product-management'));
+        $response->assertRedirect(route('hub.product-management'));
         foreach ($ids as $id) {
             $this->assertSoftDeleted('products', ['id' => $id]);
         }

@@ -61,7 +61,7 @@ class TelesalesCardAuto
             report($e);
             $partners = ['teams' => [], 'tsas' => []];
         }
-        $summary = OverallSalesSummary::build($tsd, $partners['teams'] ?? []);
+        $summary = OverallSalesSummary::build($tsd, $partners['teams'] ?? [], $partners['tsas'] ?? []);
 
         $out = [];
         foreach (array_keys($tsd['days']) as $date) {

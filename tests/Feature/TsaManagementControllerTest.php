@@ -25,7 +25,7 @@ class TsaManagementControllerTest extends TestCase
 
         $sunday = Carbon::parse('next sunday');
 
-        $response = $this->get(route('tsa-management', ['month' => $sunday->format('Y-m')]));
+        $response = $this->get(route('hub.tsa-management', ['month' => $sunday->format('Y-m')]));
 
         $response->assertOk();
         $response->assertViewHas('calendar');
@@ -41,7 +41,7 @@ class TsaManagementControllerTest extends TestCase
 
     public function test_index_defaults_to_the_current_month_with_no_month_param(): void
     {
-        $response = $this->get(route('tsa-management'));
+        $response = $this->get(route('hub.tsa-management'));
 
         $response->assertOk();
         $calendar = $response->viewData('calendar');
@@ -50,7 +50,7 @@ class TsaManagementControllerTest extends TestCase
 
     public function test_index_falls_back_to_the_current_month_for_an_invalid_month_param(): void
     {
-        $response = $this->get(route('tsa-management', ['month' => 'not-a-month']));
+        $response = $this->get(route('hub.tsa-management', ['month' => 'not-a-month']));
 
         $response->assertOk();
         $calendar = $response->viewData('calendar');
@@ -63,7 +63,7 @@ class TsaManagementControllerTest extends TestCase
         $julie->update(['rest_day_of_week' => 'sunday']);
         $sunday = Carbon::parse('next sunday');
 
-        $response = $this->get(route('tsa-management', ['month' => $sunday->format('Y-m')]));
+        $response = $this->get(route('hub.tsa-management', ['month' => $sunday->format('Y-m')]));
 
         $response->assertOk();
         $response->assertSee('data-date="' . $sunday->toDateString() . '" data-off="Julie"', false);
@@ -75,7 +75,7 @@ class TsaManagementControllerTest extends TestCase
         $julie->update(['rest_day_of_week' => 'sunday']);
         $monday = Carbon::parse('next sunday')->addDay();
 
-        $response = $this->get(route('tsa-management', ['month' => $monday->format('Y-m')]));
+        $response = $this->get(route('hub.tsa-management', ['month' => $monday->format('Y-m')]));
 
         $response->assertOk();
         $response->assertSee('data-date="' . $monday->toDateString() . '" data-off=""', false);
@@ -85,7 +85,7 @@ class TsaManagementControllerTest extends TestCase
     {
         $month = Carbon::parse('next sunday')->format('Y-m');
 
-        $response = $this->get(route('tsa-management', ['month' => $month]));
+        $response = $this->get(route('hub.tsa-management', ['month' => $month]));
 
         $response->assertOk();
         $response->assertSee('month=' . Carbon::createFromFormat('Y-m', $month)->subMonthNoOverflow()->format('Y-m'), false);
@@ -164,7 +164,7 @@ class TsaManagementControllerTest extends TestCase
             'rest_day_of_week'  => 'monday',
         ]);
 
-        $response->assertRedirect(route('tsa-management'));
+        $response->assertRedirect(route('hub.tsa-management'));
         $this->assertDatabaseHas('tsa_shifts', ['display_name' => 'New TSA', 'rest_day_of_week' => 'monday']);
     }
 
@@ -179,7 +179,7 @@ class TsaManagementControllerTest extends TestCase
             // rest_day_of_week omitted entirely -> should clear back to null
         ]);
 
-        $response->assertRedirect(route('tsa-management'));
+        $response->assertRedirect(route('hub.tsa-management'));
         $this->assertDatabaseHas('tsa_shifts', ['id' => $julie->id, 'rest_day_of_week' => null]);
     }
 
@@ -205,7 +205,7 @@ class TsaManagementControllerTest extends TestCase
             'team'   => 'Eyecare Team',
         ]);
 
-        $response->assertRedirect(route('tsa-management'));
+        $response->assertRedirect(route('hub.tsa-management'));
         foreach ($ids as $id) {
             $this->assertDatabaseHas('tsa_shifts', ['id' => $id, 'team' => 'Eyecare Team']);
         }
@@ -220,7 +220,7 @@ class TsaManagementControllerTest extends TestCase
             'action' => 'delete',
         ]);
 
-        $response->assertRedirect(route('tsa-management'));
+        $response->assertRedirect(route('hub.tsa-management'));
         foreach ($ids as $id) {
             $this->assertSoftDeleted('tsa_shifts', ['id' => $id]);
         }

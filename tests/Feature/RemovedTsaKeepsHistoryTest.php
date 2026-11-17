@@ -92,7 +92,7 @@ class RemovedTsaKeepsHistoryTest extends TestCase
 
         $this->patch(route('tsa-management.last-day', $gemma->id), ['last_day' => '2026-10-31'])->assertRedirect();
         $this->assertSame('2026-10-31', TsaShift::withTrashed()->find($gemma->id)->last_day->toDateString());
-        $this->get(route('tsa-management'))->assertOk()->assertSee('value="2026-10-31"', false);
+        $this->get(route('hub.tsa-management'))->assertOk()->assertSee('value="2026-10-31"', false);
 
         $this->post(route('tsa-management.restore', $gemma->id))->assertRedirect();
         $this->assertNull(TsaShift::find($gemma->id)->last_day);
@@ -178,10 +178,10 @@ class RemovedTsaKeepsHistoryTest extends TestCase
         $this->delete(route('tsa-management.destroy', $gemma), ['last_day' => '2026-10-31']);
         $new = TsaShift::create(['tsa_key' => 'Newbie', 'display_name' => 'New Joiner', 'team' => 'SH Naturals', 'sort_order' => 99]);
 
-        $october = $this->get(route('tsa-management', ['month' => '2026-10']))->assertOk();
+        $october = $this->get(route('hub.tsa-management', ['month' => '2026-10']))->assertOk();
         $october->assertSee('Removed · last day Oct 31, 2026')->assertDontSee('value="New Joiner"', false);
 
-        $november = $this->get(route('tsa-management', ['month' => '2026-11']))->assertOk();
+        $november = $this->get(route('hub.tsa-management', ['month' => '2026-11']))->assertOk();
         $november->assertDontSee('Removed · last day')->assertSee('value="New Joiner"', false);
         Carbon::setTestNow();
     }

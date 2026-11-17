@@ -59,7 +59,7 @@ class GuestModuleAccessTest extends TestCase
 
     public function test_the_form_offers_every_module_but_not_the_archive(): void
     {
-        $this->actingAs(User::factory()->admin()->create())->get(route('user-management'))
+        $this->actingAs(User::factory()->admin()->create())->get(route('hub.users'))
             ->assertOk()->assertSee('Modules this guest can view')->assertSee('value="partners"', false)->assertDontSee('value="archive"', false);
     }
 
@@ -124,7 +124,7 @@ class GuestModuleAccessTest extends TestCase
         $this->get(route('data.cost-breakdown'))->assertForbidden();
         $this->get(route('data.overall.projections'))->assertForbidden();
         $this->get(route('archive.overview'))->assertForbidden();
-        $this->get(route('user-management'))->assertForbidden();
+        $this->get(route('hub.users'))->assertForbidden();
     }
 
     public function test_guests_from_before_this_feature_keep_what_they_had(): void

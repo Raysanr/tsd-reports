@@ -32,8 +32,8 @@ class RoleAccessTest extends TestCase
     {
         $this->actingAs(User::factory()->normal()->create());
 
-        $this->get(route('tsa-management'))->assertForbidden();
-        $this->get(route('product-management'))->assertForbidden();
+        $this->get(route('hub.tsa-management'))->assertForbidden();
+        $this->get(route('hub.product-management'))->assertForbidden();
         $this->post(route('settings.save'))->assertForbidden(); // Settings page itself opens for everyone's own Appearance (2026-10-30)
     }
 
@@ -59,14 +59,14 @@ class RoleAccessTest extends TestCase
     {
         $this->actingAs(User::factory()->guestRole()->create());
 
-        $this->get(route('tsa-management'))->assertForbidden();
+        $this->get(route('hub.tsa-management'))->assertForbidden();
     }
 
     public function test_admin_can_reach_config_pages(): void
     {
         $this->actingAs(User::factory()->admin()->create());
 
-        $this->get(route('tsa-management'))->assertOk();
+        $this->get(route('hub.tsa-management'))->assertOk();
     }
 
     /** TSD Data Management opened up to normal-role (TSA) users (explicit

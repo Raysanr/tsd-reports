@@ -208,7 +208,7 @@ class GlobalSearchTest extends TestCase
         $response->assertOk();
         $response->assertJsonFragment([
             'label' => "{$staff->name} ({$staff->email})",
-            'url'   => route('user-management'),
+            'url'   => route('hub.users'),
         ]);
         $response->assertJsonFragment([
             'label' => 'SearchableAuditEntry happened',

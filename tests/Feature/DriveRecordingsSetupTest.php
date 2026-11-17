@@ -64,7 +64,7 @@ class DriveRecordingsSetupTest extends TestCase
         ])->assertRedirect();
         $this->assertNull($tsa->fresh()->drive_folder_name);
 
-        $this->get(route('tsa-management'))->assertOk()->assertSee('Drive folder name');
+        $this->get(route('hub.tsa-management'))->assertOk()->assertSee('Drive folder name');
     }
 
     public function test_the_php_cli_is_never_the_web_server_binary(): void

@@ -61,7 +61,7 @@ class RenamedTeamLabelCoverageTest extends TestCase
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
         $gemma->delete();
 
-        $response = $this->actingAs($admin)->get(route('tsa-management'));
+        $response = $this->actingAs($admin)->get(route('hub.tsa-management'));
 
         $response->assertOk();
         // Scoped to the "Removed" row's own visible text (not a whole-page

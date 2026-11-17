@@ -42,11 +42,7 @@
     $rangeColumns = $columns(false);
     $dailyColumns = $columns(true);
     $lastColumn = count($dailyColumns) - 1;
-    $tsaFor = fn (string $date, string $key) => $tsaCounts->get($date)?->get($key);
-    $tsaTotal = function (string $date) use ($tsaCounts) {
-        $counts = $tsaCounts->get($date);
-        return $counts ? $counts->sum('working') . '/' . $counts->sum('total') : '-';
-    };
+    $tsaLabel = fn (?array $c) => $c ? "{$c['working']}/{$c['total']}" : '-';
 @endphp
 
 <style>
@@ -140,13 +136,7 @@
                         @php($day = $row['days'][$date->toDateString()] ?? [])
                         @foreach($dailyColumns as $i => $col)
                             @if($col['tsa'] ?? false)
-                                @php($saved = $tsaFor($date->toDateString(), $row['key'])?->label() ?? '')
-                                <td class="px-3 py-1 text-center">
-                                    <span class="hidden" data-oss-tsa-text>{{ $saved }}</span>
-                                    <input type="text" inputmode="numeric" value="{{ $saved }}" placeholder="0/0" aria-label="# of TSA, {{ $row['label'] }}, {{ $date->format('M j') }}"
-                                           data-oss-tsa data-date="{{ $date->toDateString() }}" data-department="{{ $row['key'] }}"
-                                           class="w-16 text-center bg-slate-50 dark:bg-slate-800 border border-slate-400 dark:border-slate-500 rounded-md px-1.5 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary focus:border-primary">
-                                </td>
+                                <td class="px-3 py-2 text-center whitespace-nowrap font-semibold text-ink dark:text-slate-100" title="Working (with gross sales) / roster that day">{{ $tsaLabel($row['tsa'][$date->toDateString()] ?? null) }}</td>
                             @else
                                 <td class="px-3 py-2 text-center whitespace-nowrap {{ $cell($day, $col) }} {{ $i === $lastColumn ? 'oss-day-end' : '' }}">{{ $fmt($day, $col, $row) }}</td>
                             @endif
@@ -160,7 +150,7 @@
                         @php($day = $total['days'][$date->toDateString()] ?? [])
                         @foreach($dailyColumns as $i => $col)
                             @if($col['tsa'] ?? false)
-                                <td class="px-3 py-2.5 text-center whitespace-nowrap" data-oss-tsa-total="{{ $date->toDateString() }}">{{ $tsaTotal($date->toDateString()) }}</td>
+                                <td class="px-3 py-2.5 text-center whitespace-nowrap">{{ $tsaLabel($total['tsa'][$date->toDateString()] ?? null) }}</td>
                             @else
                                 <td class="px-3 py-2.5 text-center whitespace-nowrap {{ $totalCell($day, $col) }} {{ $i === $lastColumn ? 'oss-day-end' : '' }}">{{ $fmt($day, $col) }}</td>
                             @endif
@@ -173,48 +163,4 @@
 </div>
 @endforeach
 
-<script>
-(() => {
-    if (window.ossTsaReady) return;
-    window.ossTsaReady = true;
-    const url = @json(route('data.overall.sales-summary.tsa-count'));
-
-    const refreshTotal = (date) => {
-        const cell = document.querySelector(`[data-oss-tsa-total="${date}"]`);
-        const filled = [...document.querySelectorAll(`[data-oss-tsa][data-date="${date}"]`)].filter((input) => input.value);
-        if (!cell) return;
-        const sum = (i) => filled.reduce((total, input) => total + Number(input.value.split('/')[i]), 0);
-        cell.textContent = filled.length ? `${sum(0)}/${sum(1)}` : '-';
-    };
-
-    document.addEventListener('change', async (e) => {
-        const input = e.target.closest('[data-oss-tsa]');
-        if (!input) return;
-        const text = input.previousElementSibling;
-        input.disabled = true;
-        try {
-            const res = await fetch(url, {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                },
-                body: JSON.stringify({ date: input.dataset.date, department: input.dataset.department, value: input.value }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.message || 'Could not save # of TSA.');
-            input.value = data.value;
-            text.textContent = data.value;
-            refreshTotal(input.dataset.date);
-            window.showToast('Saved.', 'success');
-        } catch (error) {
-            input.value = text.textContent;
-            window.showToast(error.message, 'error');
-        } finally {
-            input.disabled = false;
-        }
-    });
-})();
-</script>
 @endsection

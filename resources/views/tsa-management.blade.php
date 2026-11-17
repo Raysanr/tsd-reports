@@ -1,4 +1,4 @@
-@extends('layouts.app')
+@extends($layout ?? 'layouts.app')
 @section('title', 'TSA Management')
 @section('subtitle', 'Roster, teams, and shift schedules')
 
@@ -301,14 +301,14 @@
 <div class="w-full lg:w-80 shrink-0">
     <div class="bg-white dark:bg-slate-900 rounded-xl border border-yellow-100 dark:border-yellow-900 shadow-sm overflow-hidden">
         <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
-            <a href="{{ route('tsa-management', ['month' => $calendar['prev_month']]) }}"
+            <a href="{{ route(request()->route()->getName(), ['month' => $calendar['prev_month']]) }}"
                class="p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
                 </svg>
             </a>
             <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100">{{ $calendar['month_label'] }}</h3>
-            <a href="{{ route('tsa-management', ['month' => $calendar['next_month']]) }}"
+            <a href="{{ route(request()->route()->getName(), ['month' => $calendar['next_month']]) }}"
                class="p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>

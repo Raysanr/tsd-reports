@@ -1,4 +1,4 @@
-@extends('layouts.app')
+@extends($layout ?? 'layouts.app')
 @section('title', 'User Management')
 @section('subtitle', 'Accounts and roles')
 
@@ -122,7 +122,7 @@
         <form id="userForm" method="POST" action="{{ route('user-management.store') }}" class="px-6 py-5 space-y-4">
             @csrf
             <input type="hidden" name="_method" id="userFormMethod" value="">
-            <input type="hidden" name="_redirect_route" value="user-management">
+            <input type="hidden" name="_redirect_route" value="{{ request()->route()->getName() }}">
 
             <div>
                 <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Full name</label>
@@ -162,13 +162,13 @@
 <form id="toggleActiveUserForm" method="POST" style="display:none">
     @csrf
     @method('PATCH')
-    <input type="hidden" name="_redirect_route" value="user-management">
+    <input type="hidden" name="_redirect_route" value="{{ request()->route()->getName() }}">
 </form>
 
 <form id="deleteUserForm" method="POST" style="display:none">
     @csrf
     @method('DELETE')
-    <input type="hidden" name="_redirect_route" value="user-management">
+    <input type="hidden" name="_redirect_route" value="{{ request()->route()->getName() }}">
 </form>
 
 @push('scripts')

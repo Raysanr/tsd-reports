@@ -200,43 +200,50 @@ class OverallPerformanceTest extends TestCase
         $this->assertSame(1.0, (float) $summary['total']['range']['excess_leads']);
     }
 
-    public function test_an_admin_can_save_and_clear_the_number_of_tsas(): void
+    /** # of TSA is automatic: working = TSAs with gross sales, total = roster that day. */
+    public function test_number_of_tsas_counts_sellers_over_the_roster(): void
+    {
+        $d = '2026-11-02';
+        $blank = ['gross_sales' => 0, 'net_income' => 0, 'total_orders' => 0, 'call_counts' => ['answered' => 0, 'unanswered' => 0, 'confirmed_via_call' => 0, 'upsell_confirmation' => 0]];
+        $tsa = fn (string $team, float $gross, bool $onRoster = true) => ['name' => 'x', 'team' => $team, 'on_roster' => $onRoster, 'gross_sales' => $gross, 'net_income' => 0, 'catered_leads' => 0];
+        $tsd = ['days' => [$d => $blank], 'teams' => [], 'tsas' => [$d => [
+            $tsa('SH Naturals', 500), $tsa('Eyecare', 0), $tsa('Eyecare', 0, false), $tsa('Eyecare', 100, false),
+        ]]];
+        $partnerDay = $blank + ['income_before_opex' => 0, 'shared_income' => 0, 'total_leads' => 0, 'catered_leads' => 0, 'excess_leads' => 0];
+        $partnerTsas = [$d => [$tsa('M&J', 300), $tsa('M&J', 0), $tsa('MLC', 0)]];
+
+        $summary = \App\Support\OverallSalesSummary::build($tsd, ['M&J' => [$d => $partnerDay], 'MLC' => [$d => $partnerDay]], $partnerTsas);
+
+        // SH E-COM: 2 sold; roster 2 + the off-roster seller.
+        $this->assertSame(['working' => 2, 'total' => 3], $summary['rows'][0]['tsa'][$d]);
+        $this->assertSame(['working' => 1, 'total' => 2], $summary['rows'][1]['tsa'][$d]); // M&J
+        $this->assertSame(['working' => 0, 'total' => 1], $summary['rows'][2]['tsa'][$d]); // MLC
+        $this->assertSame(['working' => 3, 'total' => 6], $summary['total']['tsa'][$d]);
+    }
+
+    /** A removed TSA is on the roster up to her last working day, a hidden one never. */
+    public function test_the_roster_drops_a_removed_tsa_after_her_last_day(): void
+    {
+        $this->actingAs($this->admin());
+        \App\Models\TsaShift::query()->forceDelete();
+        \App\Models\TsaShift::create(['tsa_key' => 'Stay', 'display_name' => 'Stay', 'team' => 'SH Naturals', 'sort_order' => 1]);
+        \App\Models\TsaShift::create(['tsa_key' => 'Hidden', 'display_name' => 'Hidden', 'team' => 'SH Naturals', 'sort_order' => 2, 'is_hidden' => true]);
+        $left = \App\Models\TsaShift::create(['tsa_key' => 'Left', 'display_name' => 'Left', 'team' => 'SH Naturals', 'sort_order' => 3, 'last_day' => '2026-11-02']);
+        $left->delete();
+
+        $report = app(\App\Http\Controllers\DataManagement\TsaSalesReportController::class)->overallByDate('2026-11-02', '2026-11-03');
+        $roster = fn (string $date) => collect($report['tsas'][$date])->where('on_roster', true)->pluck('name')->sort()->values()->all();
+
+        $this->assertSame(['Left', 'Stay'], $roster('2026-11-02'));
+        $this->assertSame(['Stay'], $roster('2026-11-03'));
+    }
+
+    public function test_the_number_of_tsas_shows_on_the_page_read_only(): void
     {
         $this->migratePartners();
-        $save = fn (string $department, ?string $value) => $this->actingAs($this->admin())->patchJson(
-            route('data.overall.sales-summary.tsa-count'),
-            ['date' => '2026-11-01', 'department' => $department, 'value' => $value]
-        );
-
-        $save('SH E-COM', '2/4')->assertOk()->assertJson(['value' => '2/4']);
-        $save('M&J', ' 1 / 3 ')->assertOk()->assertJson(['value' => '1/3']);
-
-        $this->get(route('data.overall.sales-summary', ['date_from' => '2026-11-01', 'date_to' => '2026-11-01']))
-            ->assertOk()->assertSee('value="2/4"', false)->assertSee('value="1/3"', false)->assertSee('3/7');
-
-        $save('SH E-COM', '2/4')->assertOk();
-        $this->assertSame(2, \App\Models\OverallTsaCount::count());
-
-        $save('M&J', null)->assertOk()->assertJson(['value' => '']);
-        $this->assertSame(1, \App\Models\OverallTsaCount::count());
-    }
-
-    public function test_the_number_of_tsas_rejects_bad_values(): void
-    {
-        $user = $this->admin();
-        $save = fn (array $data) => $this->actingAs($user)->patchJson(route('data.overall.sales-summary.tsa-count'), $data + ['date' => '2026-11-01', 'department' => 'SH E-COM']);
-
-        $save(['value' => 'four'])->assertStatus(422);
-        $save(['value' => '5/4'])->assertStatus(422);
-        $save(['value' => '2/4', 'department' => 'Nobody'])->assertStatus(422);
-        $this->assertSame(0, \App\Models\OverallTsaCount::count());
-    }
-
-    public function test_a_normal_user_cannot_change_the_number_of_tsas(): void
-    {
-        $this->actingAs(User::factory()->create(['role' => 'normal']))
-            ->patchJson(route('data.overall.sales-summary.tsa-count'), ['date' => '2026-11-01', 'department' => 'SH E-COM', 'value' => '2/4'])
-            ->assertForbidden();
+        $this->actingAs($this->admin())
+            ->get(route('data.overall.sales-summary', ['date_from' => '2026-11-01', 'date_to' => '2026-11-01']))
+            ->assertOk()->assertSee('# of TSA')->assertDontSee('data-oss-tsa', false);
     }
 
     /** Partner Leads Report rule: uncalled VIP / EXCLUDED LEADS orders aren't Excess Leads. */

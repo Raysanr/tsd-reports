@@ -359,24 +359,7 @@
      prefixes its dialog with the page's own hostname ("localhost:8000 says")
      and can't be styled. z-[60]: above any page's own modal (z-50, e.g.
      Product/TSA Management's Add/Edit forms), below the toast stack. --}}
-<div id="confirmModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 px-4">
-    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
-        <div class="px-6 py-5">
-            <h3 id="confirmModalTitle" class="text-sm font-bold text-slate-800 dark:text-slate-100">Are you sure?</h3>
-            <p id="confirmModalMessage" class="text-sm text-slate-600 dark:text-slate-400 mt-2"></p>
-        </div>
-        <div class="px-6 pb-5 flex items-center justify-end gap-2">
-            <button type="button" id="confirmModalCancel"
-                    class="px-3 py-2 text-xs font-mono text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">
-                Cancel
-            </button>
-            <button type="button" id="confirmModalConfirm"
-                    class="px-4 py-2 text-xs font-semibold text-white rounded-lg transition-colors cursor-pointer">
-                Confirm
-            </button>
-        </div>
-    </div>
-</div>
+@include('partials.confirm-modal')
 
 {{-- Mobile-only backdrop, shown behind the sidebar while it's open as an overlay drawer --}}
 <div id="sidebarBackdrop" class="hidden fixed inset-0 bg-black/50 z-40 md:hidden"></div>
@@ -521,45 +504,10 @@
         </a>
         @endif
 
-        @if(\App\Support\NormalUserPages::anyVisible(['tsa-management', 'product-management', 'user-management', 'sync-health', 'audit-log']))
+        @if(\App\Support\NormalUserPages::anyVisible(['sync-health', 'audit-log']))
         <div class="my-3 border-t border-white/10"></div>
         <p class="sidebar-section-label px-3 mb-2 text-[10px] font-mono font-semibold tracking-widest text-yellow-400/60 uppercase">Config</p>
-
-        @if(\App\Support\NormalUserPages::canSee('tsa-management'))
-        <a href="{{ route('tsa-management') }}" title="TSA Management"
-           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
-                  {{ request()->routeIs('tsa-management*') ? 'nav-active' : '' }}">
-            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round"
-                      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
-            </svg>
-            <span class="sidebar-label">TSA Management</span>
-        </a>
-        @endif
-
-        @if(\App\Support\NormalUserPages::canSee('product-management'))
-        <a href="{{ route('product-management') }}" title="Product Management"
-           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
-                  {{ request()->routeIs('product-management*') ? 'nav-active' : '' }}">
-            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round"
-                      d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/>
-            </svg>
-            <span class="sidebar-label">Product Management</span>
-        </a>
-        @endif
-
-        @if(\App\Support\NormalUserPages::canSee('user-management'))
-        <a href="{{ route('user-management') }}" title="User Management"
-           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
-                  {{ request()->routeIs('user-management*') ? 'nav-active' : '' }}">
-            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round"
-                      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
-            </svg>
-            <span class="sidebar-label">User Management</span>
-        </a>
-        @endif
+        {{-- TSA / Product / User Management moved to the Hub's Management menu (2026-11-17). --}}
 
         @if(\App\Support\NormalUserPages::canSee('sync-health'))
         <a href="{{ route('sync-health') }}" title="Sync Health"

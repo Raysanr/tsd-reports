@@ -321,6 +321,7 @@ class TsaSalesReportController extends Controller
                 return [
                     'name'          => $tsa->display_name,
                     'team'          => $g['orderTeam'],
+                    'on_roster'     => self::onRosterOn($tsa, $dateStr),
                     'gross_sales'   => (float) ($row['gross_sales'] ?? 0),
                     'net_income'    => (float) ($row['net_income'] ?? 0),
                     'catered_leads' => (float) ($row['catered_leads'] ?? 0),
@@ -364,6 +365,22 @@ class TsaSalesReportController extends Controller
         }
 
         return ['range' => $data['overallTotal'], 'days' => $days, 'teams' => $teams, 'tsas' => $tsaDays];
+    }
+
+    /** Whether $tsa was on the department roster on $date: not hidden (for
+     *  that month), and not removed before it — her last working day, or the
+     *  day she was removed when none was saved (same cutoff as
+     *  TsaShift::applyRosterWindow()). Sales Summary's # of TSA total. */
+    private static function onRosterOn(TsaShift $tsa, string $date): bool
+    {
+        if ($tsa->is_hidden) {
+            return false;
+        }
+        if ($tsa->deleted_at === null) {
+            return true;
+        }
+
+        return ($tsa->last_day ?? $tsa->deleted_at)->toDateString() >= $date;
     }
 
     /** A team's Catered and Excess Leads for one day, counted exactly like Leads

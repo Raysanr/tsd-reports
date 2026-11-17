@@ -20,9 +20,9 @@ class ToastReplacesFlashBannerTest extends TestCase
     public static function pageRouteProvider(): array
     {
         return [
-            'product-management' => ['product-management'],
-            'tsa-management'     => ['tsa-management'],
-            'user-management'    => ['user-management'],
+            'product-management' => ['hub.product-management'],
+            'tsa-management'     => ['hub.tsa-management'],
+            'user-management'    => ['hub.users'],
             'settings'           => ['settings'],
         ];
     }

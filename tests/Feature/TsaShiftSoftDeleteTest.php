@@ -32,7 +32,7 @@ class TsaShiftSoftDeleteTest extends TestCase
         $shift = TsaShift::create(['tsa_key' => 'Widget', 'display_name' => 'Widget Agent', 'team' => 'SH Naturals', 'sort_order' => 1]);
         $shift->delete();
 
-        $response = $this->get(route('tsa-management'));
+        $response = $this->get(route('hub.tsa-management'));
 
         $response->assertOk();
         $response->assertViewHas('trashedShifts', function ($trashed) use ($shift) {
@@ -45,7 +45,7 @@ class TsaShiftSoftDeleteTest extends TestCase
         $shift = TsaShift::create(['tsa_key' => 'Widget', 'display_name' => 'Widget Agent', 'team' => 'SH Naturals', 'sort_order' => 1]);
         $shift->delete();
 
-        $response = $this->get(route('tsa-management'));
+        $response = $this->get(route('hub.tsa-management'));
 
         $response->assertOk();
         $response->assertViewHas('teamGroups', function ($teamGroups) use ($shift) {
@@ -65,7 +65,7 @@ class TsaShiftSoftDeleteTest extends TestCase
 
         $response = $this->post(route('tsa-management.restore', $shift->id));
 
-        $response->assertRedirect(route('tsa-management'));
+        $response->assertRedirect(route('hub.tsa-management'));
         $this->assertDatabaseHas('tsa_shifts', ['id' => $shift->id, 'deleted_at' => null]);
     }
 
@@ -86,7 +86,7 @@ class TsaShiftSoftDeleteTest extends TestCase
 
         $response = $this->delete(route('tsa-management.force-delete', $shift->id));
 
-        $response->assertRedirect(route('tsa-management'));
+        $response->assertRedirect(route('hub.tsa-management'));
         $this->assertDatabaseMissing('tsa_shifts', ['id' => $shift->id]);
     }
 

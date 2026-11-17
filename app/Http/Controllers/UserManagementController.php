@@ -12,10 +12,9 @@ class UserManagementController extends Controller
 {
     public function index(Request $request)
     {
-        return view('user-management', [
-            'users'           => $this->usersForManagement(),
-            'assignableRoles' => $request->user()->assignableRoles(),
-        ]);
+        // Lives only in the Hub now (2026-11-17): the Leads Reports sidebar link
+        // is gone; old links/bookmarks land on the Hub page, query kept.
+        return redirect()->route('hub.users', $request->query());
     }
 
     /** Which named route store()/update()/toggleActive() below send the
@@ -34,9 +33,12 @@ class UserManagementController extends Controller
      *  know which of the two pages to send the browser back to. */
     public function hubIndex(Request $request)
     {
-        return view('hub-user-management', [
+        \App\Support\ManageReturn::remember('users', 'hub.users');
+
+        return view('user-management', [
             'users'           => $this->usersForManagement(),
             'assignableRoles' => $request->user()->assignableRoles(),
+            'layout'          => 'layouts.hub-manage',
         ]);
     }
 
@@ -176,8 +178,7 @@ class UserManagementController extends Controller
      *  get redirected there instead. */
     private function redirectToCaller(Request $request): \Illuminate\Http\RedirectResponse
     {
-        $target = $request->input('_redirect_route');
-        $target = in_array($target, self::RETURN_ROUTES, true) ? $target : 'user-management';
+        $target = \App\Support\ManageReturn::target($request, 'users', self::RETURN_ROUTES, 'hub.users');
 
         return redirect()->route($target);
     }

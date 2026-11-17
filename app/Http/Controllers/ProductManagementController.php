@@ -14,9 +14,11 @@ use Illuminate\Support\Facades\Http;
 
 class ProductManagementController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        return view('product-management', $this->buildViewData());
+        // Lives only in the Hub now (2026-11-17): the Leads Reports sidebar link
+        // is gone; old links/bookmarks land on the Hub page, query kept.
+        return redirect()->route('hub.product-management', $request->query());
     }
 
     /** Same data as index() above, rendered as a Hub-styled standalone page
@@ -26,7 +28,9 @@ class ProductManagementController extends Controller
      *  the two pages to send the browser back to. */
     public function hubIndex()
     {
-        return view('hub-product-management', $this->buildViewData());
+        \App\Support\ManageReturn::remember('product', 'hub.product-management');
+
+        return view('product-management', $this->buildViewData() + ['layout' => 'layouts.hub-manage']);
     }
 
     private function buildViewData(): array
@@ -73,8 +77,7 @@ class ProductManagementController extends Controller
 
     private function redirectToCaller(Request $request): \Illuminate\Http\RedirectResponse
     {
-        $target = $request->input('_redirect_route');
-        $target = in_array($target, self::RETURN_ROUTES, true) ? $target : 'product-management';
+        $target = \App\Support\ManageReturn::target($request, 'product', self::RETURN_ROUTES, 'hub.product-management');
 
         return redirect()->route($target);
     }

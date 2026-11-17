@@ -77,7 +77,7 @@ class NormalUserPageAccessTest extends TestCase
         $tsa = $this->normal();
         $this->actingAs($tsa)->get('/data/product-costs')->assertOk();
         $this->assertStringContainsString('/data/product-costs"', $this->actingAs($tsa)->get('/data/expected-income')->getContent());
-        $this->actingAs($tsa)->get(route('user-management'))->assertOk();
+        $this->actingAs($tsa)->get(route('hub.users'))->assertOk();
         $this->actingAs($tsa)->get(route('hub.users'))->assertOk();
 
         // Saves stay admin-only.

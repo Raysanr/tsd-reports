@@ -31,14 +31,16 @@ class OverallSalesSummary
     /**
      * @param  array  $tsd  TsaSalesReportController::overallByDate() on TSD
      * @param  array  $partnerTeams  Its 'teams' on the partners data set, or [] if they couldn't load
+     * @param  array  $partnerTsas  Its 'tsas' on the partners data set (per day, each TSA's figures)
      */
-    public static function build(array $tsd, array $partnerTeams): array
+    public static function build(array $tsd, array $partnerTeams, array $partnerTsas = []): array
     {
         $dates = array_keys($tsd['days']);
 
-        $departments = [self::shEcomDays($tsd)];
+        $departments = [self::shEcomDays($tsd) + ['tsa' => self::tsaCounts($dates, $tsd['tsas'] ?? [], null)]];
         foreach (self::orderedPartners($partnerTeams) as $key => $partner) {
-            $departments[] = ['key' => $key, 'label' => $partner['label'], 'partner' => true, 'days' => $partner['days']];
+            $departments[] = ['key' => $key, 'label' => $partner['label'], 'partner' => true, 'days' => $partner['days'],
+                'tsa' => self::tsaCounts($dates, $partnerTsas, $key)];
         }
 
         $rows = array_map(fn (array $department) => [
@@ -47,6 +49,7 @@ class OverallSalesSummary
             'partner' => $department['partner'],
             'range'   => self::finish(self::sum($department['days']), $department['partner']),
             'days'    => array_map(fn (array $day) => self::finish($day, $department['partner']), $department['days']),
+            'tsa'     => $department['tsa'],
         ], $departments);
 
         $totalFor = fn (array $days) => self::finishTotal(self::sum($days));
@@ -58,8 +61,31 @@ class OverallSalesSummary
                 'days'  => collect($dates)->mapWithKeys(fn ($date) => [
                     $date => $totalFor(array_map(fn ($d) => $d['days'][$date] ?? self::blank(), $departments)),
                 ])->all(),
+                'tsa'   => collect($dates)->mapWithKeys(fn ($date) => [$date => [
+                    'working' => array_sum(array_map(fn ($d) => $d['tsa'][$date]['working'], $departments)),
+                    'total'   => array_sum(array_map(fn ($d) => $d['tsa'][$date]['total'], $departments)),
+                ]])->all(),
             ],
         ];
+    }
+
+    /** # of TSA per day (automated 2026-11-17): working = TSAs with gross
+     *  sales that day, total = the department's roster that day (plus anyone
+     *  who sold while off it, so working never exceeds total). $team null =
+     *  every TSA in $tsasByDate (SH E-COM's two teams); else that partner's. */
+    private static function tsaCounts(array $dates, array $tsasByDate, ?string $team): array
+    {
+        $counts = [];
+        foreach ($dates as $date) {
+            $tsas = array_filter($tsasByDate[$date] ?? [], fn (array $t) => $team === null || $t['team'] === $team);
+            $selling = fn (array $t) => (float) $t['gross_sales'] > 0;
+            $counts[$date] = [
+                'working' => count(array_filter($tsas, $selling)),
+                'total'   => count(array_filter($tsas, fn (array $t) => ($t['on_roster'] ?? true) || $selling($t))),
+            ];
+        }
+
+        return $counts;
     }
 
     private static function shEcomDays(array $tsd): array
