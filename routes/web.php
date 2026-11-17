@@ -45,7 +45,13 @@ Route::get('/cron/run', [CronController::class, 'run'])->name('cron.run');
 // last_seen_at here too, so User Management's online indicator (User::isOnline())
 // covers Call Tracker's pages as well, not just TSD Reports' own.
 Route::middleware(['auth', 'active', 'last-seen', 'guest-modules', 'normal-pages'])->group(function () {
-    Route::get('/hub', fn () => view('hub'))->name('hub');
+    Route::get('/hub', fn () => view('hub', \App\Http\Controllers\HubCalendarController::viewData()))->name('hub');
+    // Hub calendar agendas (2026-11-17): everyone views, only admins edit.
+    Route::middleware('role:super_admin,admin')->group(function () {
+        Route::post('/hub/agendas', [\App\Http\Controllers\HubCalendarController::class, 'store'])->name('hub.agendas.store');
+        Route::put('/hub/agendas/{agenda}', [\App\Http\Controllers\HubCalendarController::class, 'update'])->name('hub.agendas.update');
+        Route::delete('/hub/agendas/{agenda}', [\App\Http\Controllers\HubCalendarController::class, 'destroy'])->name('hub.agendas.destroy');
+    });
 
     Route::get('/',                [DashboardController::class,      'index'])->name('dashboard');
     Route::post('/sync',           [DashboardController::class,      'sync'])->name('dashboard.sync')

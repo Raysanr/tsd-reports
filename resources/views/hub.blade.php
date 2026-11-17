@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Seller's Hub TSD</title>
+<meta name="csrf-token" content="{{ csrf_token() }}">
 <script>
     // Same saved theme as every module (localStorage 'theme'), applied before paint.
     if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');
@@ -241,7 +242,166 @@
     .hub-intro .hero .bars rect:nth-child(3) { animation-delay: 760ms; }
     .hub-intro .hero .bars rect:nth-child(4) { animation-delay: 830ms; }
 
+    /* ---------- Calendar (2026-11-17) ----------
+       A tile beside Partner systems shows today, what's coming up and a
+       mini month; clicking it opens the full month in a centered pop-up.
+       PH holidays are fixed; admins add agendas, everyone else views. */
+    .cal-tile {
+        border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer;
+        display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 250px); gap: 24px; align-items: stretch;
+    }
+    .cal-tile:hover { transform: translateY(-4px); box-shadow: var(--shadow-hover); }
+    .cal-tile:focus-visible, .cal-btn:focus-visible, .cal-cell:focus-visible, .cal-chip:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .cal-today { display: flex; flex-direction: column; min-width: 0; }
+    .cal-dow { font-size: 13px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cal-red); }
+    .cal-big { font-size: 64px; font-weight: 800; letter-spacing: -0.05em; line-height: 1; margin-top: 4px; }
+    .cal-month-year { font-size: 14px; font-weight: 600; color: var(--muted); margin-top: 4px; }
+    .cal-next { margin-top: auto; padding-top: 18px; display: flex; flex-direction: column; gap: 8px; }
+    .cal-next-label { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .cal-next-item { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 13px; }
+    .cal-next-item .dot { flex: none; width: 8px; height: 8px; border-radius: 999px; background: var(--c); }
+    .cal-next-item .when { flex: none; width: 52px; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .cal-next-item .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--ink-2); }
+    .cal-next-empty { font-size: 13px; color: var(--muted); }
+
+    .cal-mini { background: var(--surface-2); border-radius: 20px; padding: 14px 12px 12px; align-self: start; }
+    .cal-mini-title { font-size: 13px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--cal-red); padding: 0 4px 8px; }
+    .cal-mini-grid { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; text-align: center; font-variant-numeric: tabular-nums; }
+    .cal-mini-grid .wd { font-size: 11px; font-weight: 700; color: var(--muted); padding-bottom: 4px; }
+    .cal-mini-grid .d { position: relative; height: 28px; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--ink); }
+    .cal-mini-grid .d.we { color: var(--muted); }
+    .cal-mini-grid .d.hol { color: var(--cal-green); }
+    .cal-mini-grid .d.today span { width: 24px; height: 24px; border-radius: 999px; display: grid; place-items: center; background: var(--cal-red); color: #fff; }
+    .cal-mini-grid .d i { position: absolute; bottom: 0; width: 4px; height: 4px; border-radius: 999px; background: var(--primary); }
+
+    .cal-overlay {
+        position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px;
+        background: rgba(15, 23, 42, 0.42); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+        opacity: 0; transition: opacity 220ms ease;
+    }
+    .cal-overlay[hidden] { display: none; }
+    .cal-overlay.is-open { opacity: 1; }
+    .cal-modal {
+        width: min(1180px, 100%); height: min(820px, calc(100dvh - 32px));
+        background: var(--surface); color: var(--ink); border-radius: 28px; overflow: hidden;
+        box-shadow: 0 40px 80px -24px rgba(15, 23, 42, 0.45);
+        display: grid; grid-template-rows: auto minmax(0, 1fr);
+        transform-origin: var(--ox, 50%) var(--oy, 50%);
+        transform: scale(0.9) translateY(10px); opacity: 0;
+        transition: transform 340ms cubic-bezier(.16, 1, .3, 1), opacity 220ms ease;
+    }
+    .cal-overlay.is-open .cal-modal { transform: none; opacity: 1; }
+    .cal-head { display: flex; align-items: center; gap: 12px; padding: 22px 24px 14px; flex-wrap: wrap; }
+    .cal-head h2 { margin: 0; font-size: clamp(26px, 3vw, 36px); font-weight: 800; letter-spacing: -0.03em; margin-right: auto; }
+    .cal-head h2 span { font-weight: 500; color: var(--muted); }
+    .cal-nav { display: flex; align-items: center; gap: 6px; }
+    .cal-btn {
+        height: 40px; min-width: 40px; padding: 0 14px; border: 0; border-radius: 999px; cursor: pointer;
+        background: var(--surface-2); color: var(--ink); font: inherit; font-weight: 700; font-size: 14px;
+        display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+        transition: background 120ms ease;
+    }
+    .cal-btn:hover { background: var(--line); }
+    .cal-btn.icon { padding: 0; width: 40px; }
+    .cal-btn svg { width: 16px; height: 16px; }
+    .cal-btn.primary { background: var(--ink); color: var(--bg); }
+    .cal-btn.primary:hover { background: var(--ink-2); }
+    .cal-btn.danger { background: transparent; color: var(--cal-red); padding: 0 10px; }
+    .cal-btn.danger:hover { background: color-mix(in srgb, var(--cal-red) 12%, transparent); }
+    .cal-btn:disabled { opacity: 0.5; cursor: default; }
+
+    .cal-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; min-height: 0; border-top: 1px solid var(--line); }
+    .cal-month { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+    .cal-wd { display: grid; grid-template-columns: repeat(7, 1fr); }
+    .cal-wd span { padding: 10px 12px; text-align: right; font-size: 13px; font-weight: 700; color: var(--muted); }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-template-rows: repeat(6, minmax(0, 1fr)); border-top: 1px solid var(--line); min-height: 0; }
+    .cal-grid.slide-next { animation: calSlideNext 300ms cubic-bezier(.16, 1, .3, 1); }
+    .cal-grid.slide-prev { animation: calSlidePrev 300ms cubic-bezier(.16, 1, .3, 1); }
+    @keyframes calSlideNext { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+    @keyframes calSlidePrev { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
+    .cal-cell {
+        position: relative; min-width: 0; min-height: 0; overflow: hidden; padding: 6px 6px 4px;
+        border: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+        background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+        display: flex; flex-direction: column; gap: 3px; transition: background 120ms ease;
+    }
+    .cal-cell:nth-child(7n) { border-right: 0; }
+    .cal-cell:hover { background: color-mix(in srgb, var(--surface-2) 70%, transparent); }
+    .cal-cell.sel { background: var(--surface-2); }
+    .cal-cell .num { align-self: flex-end; font-size: 15px; font-weight: 700; min-width: 30px; height: 30px; padding: 0 6px; border-radius: 999px; display: grid; place-items: center; font-variant-numeric: tabular-nums; }
+    .cal-cell.out .num { color: var(--muted); opacity: 0.6; }
+    .cal-cell.we:not(.out) .num { color: var(--muted); }
+    .cal-cell.today .num { background: var(--cal-red); color: #fff; opacity: 1; }
+    .cal-pill {
+        display: flex; align-items: center; gap: 5px; min-width: 0; padding: 2px 7px; border-radius: 7px;
+        font-size: 12px; font-weight: 600; line-height: 1.45;
+        background: color-mix(in srgb, var(--c) 16%, transparent); color: color-mix(in srgb, var(--c) 78%, var(--ink));
+    }
+    .cal-pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cal-pill svg { flex: none; width: 11px; height: 11px; }
+    .cal-more { font-size: 11px; font-weight: 700; color: var(--muted); padding-left: 7px; }
+    .cal-dots { display: none; gap: 3px; justify-content: center; }
+    .cal-dots i { width: 5px; height: 5px; border-radius: 999px; background: var(--c); }
+
+    .cal-day { border-left: 1px solid var(--line); padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+    .cal-day h3 { margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+    .cal-day h3 small { display: block; font-size: 13px; font-weight: 700; color: var(--muted); letter-spacing: 0; margin-bottom: 2px; text-transform: uppercase; }
+    .cal-day.swap { animation: hubFade 220ms ease-out; }
+    .cal-section-label { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+    .cal-item { border-radius: 14px; padding: 12px 12px 12px 14px; background: color-mix(in srgb, var(--c) 10%, var(--surface)); border-left: 4px solid var(--c); display: flex; flex-direction: column; gap: 4px; }
+    .cal-item + .cal-item { margin-top: 8px; }
+    .cal-item-title { font-weight: 700; font-size: 14px; overflow-wrap: anywhere; }
+    .cal-item-meta { font-size: 12px; font-weight: 600; color: var(--muted); }
+    .cal-item-note { font-size: 13px; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .cal-item-actions { display: flex; gap: 4px; margin-top: 4px; }
+    .cal-item-actions .cal-btn { height: 30px; font-size: 12px; padding: 0 10px; }
+    .cal-empty { font-size: 13px; color: var(--muted); }
+    .cal-form { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 18px; background: var(--surface-2); }
+    .cal-form label { font-size: 12px; font-weight: 700; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+    .cal-form input, .cal-form textarea {
+        font: inherit; font-size: 14px; color: var(--ink); background: var(--surface); border: 1px solid var(--line);
+        border-radius: 10px; padding: 9px 11px; width: 100%; box-sizing: border-box;
+    }
+    .cal-form textarea { resize: vertical; min-height: 64px; }
+    .cal-form input:focus, .cal-form textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent); }
+    .cal-chips { display: flex; gap: 8px; }
+    .cal-chip { width: 26px; height: 26px; border-radius: 999px; border: 0; cursor: pointer; background: var(--c); box-shadow: 0 0 0 2px var(--surface-2); }
+    .cal-chip[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--surface-2), 0 0 0 4px var(--c); }
+    .cal-form-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .cal-error { font-size: 13px; font-weight: 600; color: var(--cal-red); }
+    .cal-viewonly { font-size: 12px; color: var(--muted); margin-top: auto; }
+
+    :root { --cal-red: #ef4444; --cal-green: #16a34a; }
+    html.dark { --cal-green: #4ade80; }
+    .c-holiday { --c: #16a34a; } html.dark .c-holiday { --c: #4ade80; }
+    .c-blue { --c: #2563eb; } html.dark .c-blue { --c: #60a5fa; }
+    .c-purple { --c: #7c3aed; } html.dark .c-purple { --c: #a78bfa; }
+    .c-amber { --c: #d97706; } html.dark .c-amber { --c: #fbbf24; }
+    .c-rose { --c: #e11d48; } html.dark .c-rose { --c: #fb7185; }
+    .c-teal { --c: #0d9488; } html.dark .c-teal { --c: #2dd4bf; }
+    .c-slate { --c: #64748b; } html.dark .c-slate { --c: #94a3b8; }
+
+    @media (max-width: 860px) {
+        .cal-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; overflow-y: auto; }
+        .cal-month { grid-template-rows: auto auto; }
+        .cal-grid { grid-template-rows: repeat(6, 64px); }
+        .cal-day { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+        .cal-cell .cal-pill, .cal-cell .cal-more { display: none; }
+        .cal-cell .cal-dots { display: flex; }
+        .cal-cell .num { align-self: center; font-size: 14px; }
+        .cal-wd span { text-align: center; padding: 8px 0; }
+    }
+    @media (max-width: 640px) {
+        .cal-tile { grid-template-columns: minmax(0, 1fr); }
+        .cal-mini { display: none; }
+        .cal-overlay { padding: 0; }
+        .cal-modal { width: 100%; height: 100dvh; border-radius: 0; }
+        .cal-head { padding: 16px; }
+    }
+
     @media (prefers-reduced-motion: reduce) {
+        .cal-modal, .cal-overlay { transition: none !important; transform: none !important; }
+        .cal-grid, .cal-day { animation: none !important; }
         .tile, .arrow, .partner { transition: none; }
         a.tile:hover { transform: none; }
         .hub-intro * { animation: none !important; }
@@ -414,6 +574,21 @@
                 @endforeach
             </div>
         </section>
+
+        {{-- Calendar (explicit request, 2026-11-17) — drawn by the script
+             below from $calendar; opens the full month in a pop-up. --}}
+        <button type="button" class="tile wide cal-tile" id="calTile" aria-haspopup="dialog" aria-controls="calOverlay" aria-label="Open calendar">
+            <div class="cal-today">
+                <span class="cal-dow" id="calTileDow"></span>
+                <span class="cal-big" id="calTileDay"></span>
+                <span class="cal-month-year" id="calTileMonth"></span>
+                <div class="cal-next" id="calTileNext"></div>
+            </div>
+            <div class="cal-mini" aria-hidden="true">
+                <div class="cal-mini-title" id="calMiniTitle"></div>
+                <div class="cal-mini-grid" id="calMiniGrid"></div>
+            </div>
+        </button>
     </div>
 </main>
 </div>
@@ -445,6 +620,371 @@
             toggle.focus();
         });
     });
+</script>
+<div class="cal-overlay" id="calOverlay" hidden>
+    <div class="cal-modal" id="calModal" role="dialog" aria-modal="true" aria-labelledby="calTitle">
+        <div class="cal-head">
+            <h2 id="calTitle"></h2>
+            <div class="cal-nav">
+                <button type="button" class="cal-btn icon" id="calPrev" aria-label="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path stroke-linecap="round" stroke-linejoin="round" d="M15 18l-6-6 6-6"/></svg></button>
+                <button type="button" class="cal-btn" id="calTodayBtn">Today</button>
+                <button type="button" class="cal-btn icon" id="calNext" aria-label="Next month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path stroke-linecap="round" stroke-linejoin="round" d="M9 6l6 6-6 6"/></svg></button>
+                <button type="button" class="cal-btn icon" id="calClose" aria-label="Close calendar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg></button>
+            </div>
+        </div>
+        <div class="cal-body">
+            <div class="cal-month">
+                <div class="cal-wd" aria-hidden="true"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+                <div class="cal-grid" id="calGrid" role="grid" aria-labelledby="calTitle"></div>
+            </div>
+            <aside class="cal-day" id="calDay" aria-live="polite"></aside>
+        </div>
+    </div>
+</div>
+<script id="calData" type="application/json">{!! json_encode(array_merge($calendar, [
+    'storeUrl' => route('hub.agendas.store'),
+    'baseUrl'  => url('/hub/agendas'),
+]), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) !!}</script>
+<script>
+(function () {
+    var data = JSON.parse(document.getElementById('calData').textContent);
+    var csrf = document.querySelector('meta[name="csrf-token"]').content;
+    var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    var DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    var reduceMotion = false;
+    try { reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+    function key(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+    function parse(k) { var p = k.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
+    function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+    function fmtTime(t) { if (!t) return ''; var h = +t.slice(0, 2), m = t.slice(3); return ((h % 12) || 12) + ':' + m + (h < 12 ? ' AM' : ' PM'); }
+    var STAR = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.9 6.9L22 9.3l-5.4 4.8 1.6 7.4L12 17.8 5.8 21.5l1.6-7.4L2 9.3l7.1-.4z"/></svg>';
+
+    var today = parse(data.today);
+    var view = new Date(today.getFullYear(), today.getMonth(), 1);
+    var selected = data.today;
+    var editingId = null;
+
+    function agendasOn(k) {
+        return data.agendas.filter(function (a) { return a.date === k; }).sort(function (a, b) {
+            if (!a.time !== !b.time) return a.time ? 1 : -1;
+            return (a.time || '').localeCompare(b.time || '') || a.id - b.id;
+        });
+    }
+    function holidaysOn(k) { return data.holidays[k] || []; }
+
+    /* ---------- Tile ---------- */
+    function renderTile() {
+        document.getElementById('calTileDow').textContent = DAYS[today.getDay()];
+        document.getElementById('calTileDay').textContent = today.getDate();
+        document.getElementById('calTileMonth').textContent = MONTHS[today.getMonth()] + ' ' + today.getFullYear();
+
+        var upcoming = [];
+        Object.keys(data.holidays).forEach(function (k) {
+            if (k >= data.today) holidaysOn(k).forEach(function (h) { upcoming.push({ date: k, title: h.name, color: 'holiday', time: '' }); });
+        });
+        data.agendas.forEach(function (a) { if (a.date >= data.today) upcoming.push(a); });
+        upcoming.sort(function (a, b) { return a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''); });
+
+        var next = document.getElementById('calTileNext');
+        next.replaceChildren(el('span', 'cal-next-label', 'Coming up'));
+        if (!upcoming.length) next.appendChild(el('span', 'cal-next-empty', 'Nothing scheduled'));
+        upcoming.slice(0, 3).forEach(function (u) {
+            var d = parse(u.date);
+            var row = el('div', 'cal-next-item c-' + u.color);
+            row.appendChild(el('span', 'dot'));
+            row.appendChild(el('span', 'when', u.date === data.today ? 'Today' : MONTHS[d.getMonth()].slice(0, 3) + ' ' + d.getDate()));
+            row.appendChild(el('span', 'what', u.title));
+            next.appendChild(row);
+        });
+
+        document.getElementById('calMiniTitle').textContent = MONTHS[today.getMonth()];
+        var grid = document.getElementById('calMiniGrid');
+        grid.replaceChildren();
+        'SMTWTFS'.split('').forEach(function (c) { grid.appendChild(el('span', 'wd', c)); });
+        var first = new Date(today.getFullYear(), today.getMonth(), 1);
+        for (var i = 0; i < first.getDay(); i++) grid.appendChild(el('span', 'd'));
+        var days = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+        for (var day = 1; day <= days; day++) {
+            var d = new Date(today.getFullYear(), today.getMonth(), day), k = key(d);
+            var cell = el('span', 'd');
+            if (d.getDay() === 0 || d.getDay() === 6) cell.classList.add('we');
+            if (holidaysOn(k).length) cell.classList.add('hol');
+            if (k === data.today) cell.classList.add('today');
+            cell.appendChild(el('span', null, day));
+            if (agendasOn(k).length) cell.appendChild(el('i'));
+            grid.appendChild(cell);
+        }
+    }
+
+    /* ---------- Month grid ---------- */
+    function renderMonth(direction) {
+        var title = document.getElementById('calTitle');
+        title.replaceChildren(document.createTextNode(MONTHS[view.getMonth()] + ' '), el('span', null, view.getFullYear()));
+
+        var grid = document.getElementById('calGrid');
+        grid.replaceChildren();
+        var start = new Date(view.getFullYear(), view.getMonth(), 1 - view.getDay());
+        for (var i = 0; i < 42; i++) {
+            var d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i), k = key(d);
+            var cell = el('button', 'cal-cell');
+            cell.type = 'button';
+            cell.dataset.date = k;
+            cell.setAttribute('role', 'gridcell');
+            if (d.getMonth() !== view.getMonth()) cell.classList.add('out');
+            if (d.getDay() === 0 || d.getDay() === 6) cell.classList.add('we');
+            if (k === data.today) cell.classList.add('today');
+            if (k === selected) { cell.classList.add('sel'); cell.setAttribute('aria-selected', 'true'); }
+            cell.tabIndex = k === selected ? 0 : -1;
+
+            var hols = holidaysOn(k), ags = agendasOn(k);
+            var label = DAYS[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
+            if (hols.length) label += ', ' + hols.map(function (h) { return h.name; }).join(', ');
+            if (ags.length) label += ', ' + ags.length + (ags.length === 1 ? ' agenda' : ' agendas');
+            cell.setAttribute('aria-label', label);
+
+            cell.appendChild(el('span', 'num', d.getDate()));
+            var items = hols.map(function (h) { return { title: h.name, color: 'holiday', star: true }; })
+                .concat(ags.map(function (a) { return { title: (a.time ? fmtTime(a.time) + ' ' : '') + a.title, color: a.color }; }));
+            items.slice(0, 2).forEach(function (it) {
+                var pill = el('span', 'cal-pill c-' + it.color);
+                if (it.star) pill.insertAdjacentHTML('beforeend', STAR);
+                pill.appendChild(el('span', null, it.title));
+                cell.appendChild(pill);
+            });
+            if (items.length > 2) cell.appendChild(el('span', 'cal-more', '+' + (items.length - 2) + ' more'));
+            if (items.length) {
+                var dots = el('span', 'cal-dots');
+                items.slice(0, 3).forEach(function (it) { dots.appendChild(el('i', 'c-' + it.color)); });
+                cell.appendChild(dots);
+            }
+            grid.appendChild(cell);
+        }
+        if (direction && !reduceMotion) {
+            grid.classList.remove('slide-next', 'slide-prev');
+            void grid.offsetWidth;
+            grid.classList.add(direction > 0 ? 'slide-next' : 'slide-prev');
+        }
+    }
+
+    /* ---------- Day panel ---------- */
+    function renderDay(animate) {
+        var panel = document.getElementById('calDay');
+        var d = parse(selected);
+        panel.replaceChildren();
+        var h = el('h3');
+        h.appendChild(el('small', null, DAYS[d.getDay()]));
+        h.appendChild(document.createTextNode(MONTHS[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear()));
+        panel.appendChild(h);
+
+        var hols = holidaysOn(selected);
+        if (hols.length) {
+            var hs = el('div');
+            hs.appendChild(el('div', 'cal-section-label', 'Holiday'));
+            hols.forEach(function (x) {
+                var item = el('div', 'cal-item c-holiday');
+                item.appendChild(el('span', 'cal-item-title', x.name));
+                item.appendChild(el('span', 'cal-item-meta', x.type === 'regular' ? 'Regular holiday' : 'Special non-working day'));
+                hs.appendChild(item);
+            });
+            panel.appendChild(hs);
+        }
+
+        var ags = agendasOn(selected);
+        var as = el('div');
+        as.appendChild(el('div', 'cal-section-label', 'Agenda'));
+        if (!ags.length) as.appendChild(el('p', 'cal-empty', 'No agenda for this day.'));
+        ags.forEach(function (a) {
+            if (a.id === editingId) { as.appendChild(form(a)); return; }
+            var item = el('div', 'cal-item c-' + a.color);
+            item.appendChild(el('span', 'cal-item-title', a.title));
+            item.appendChild(el('span', 'cal-item-meta', a.time ? fmtTime(a.time) : 'All day'));
+            if (a.note) item.appendChild(el('span', 'cal-item-note', a.note));
+            if (data.canEdit) {
+                var actions = el('div', 'cal-item-actions');
+                var edit = el('button', 'cal-btn', 'Edit');
+                edit.type = 'button';
+                edit.addEventListener('click', function () { editingId = a.id; renderDay(); focusFirstField(); });
+                var del = el('button', 'cal-btn danger', 'Delete');
+                del.type = 'button';
+                del.addEventListener('click', function () { remove(a, del); });
+                actions.append(edit, del);
+                item.appendChild(actions);
+            }
+            as.appendChild(item);
+        });
+        panel.appendChild(as);
+
+        if (data.canEdit && editingId === null) panel.appendChild(form(null));
+        if (!data.canEdit) panel.appendChild(el('p', 'cal-viewonly', 'Holidays and agendas are set by admins.'));
+
+        if (animate && !reduceMotion) { panel.classList.remove('swap'); void panel.offsetWidth; panel.classList.add('swap'); }
+    }
+
+    function form(agenda) {
+        var f = el('form', 'cal-form');
+        f.noValidate = true;
+        f.appendChild(el('div', 'cal-section-label', agenda ? 'Edit agenda' : 'Add agenda'));
+        var title = el('input'); title.name = 'title'; title.maxLength = 120; title.required = true; title.placeholder = 'e.g. Team huddle';
+        var time = el('input'); time.name = 'time'; time.type = 'time';
+        var note = el('textarea'); note.name = 'note'; note.maxLength = 1000; note.placeholder = 'Details (optional)';
+        if (agenda) { title.value = agenda.title; time.value = agenda.time || ''; note.value = agenda.note || ''; }
+        var l1 = el('label', null, 'Title'); l1.appendChild(title);
+        var l2 = el('label', null, 'Time (optional)'); l2.appendChild(time);
+        var l3 = el('label', null, 'Note'); l3.appendChild(note);
+        var color = agenda ? agenda.color : data.colors[0];
+        var chips = el('div', 'cal-chips');
+        chips.setAttribute('role', 'group');
+        chips.setAttribute('aria-label', 'Color');
+        data.colors.forEach(function (c) {
+            var chip = el('button', 'cal-chip c-' + c);
+            chip.type = 'button';
+            chip.setAttribute('aria-label', c);
+            chip.setAttribute('aria-pressed', c === color ? 'true' : 'false');
+            chip.addEventListener('click', function () {
+                color = c;
+                chips.querySelectorAll('.cal-chip').forEach(function (x) { x.setAttribute('aria-pressed', x === chip ? 'true' : 'false'); });
+            });
+            chips.appendChild(chip);
+        });
+        var error = el('p', 'cal-error'); error.hidden = true;
+        var actions = el('div', 'cal-form-actions');
+        if (agenda) {
+            var cancel = el('button', 'cal-btn', 'Cancel'); cancel.type = 'button';
+            cancel.addEventListener('click', function () { editingId = null; renderDay(); });
+            actions.appendChild(cancel);
+        }
+        var save = el('button', 'cal-btn primary', agenda ? 'Save' : 'Add agenda'); save.type = 'submit';
+        actions.appendChild(save);
+        f.append(l1, l2, chips, l3, error, actions);
+
+        f.addEventListener('submit', function (e) {
+            e.preventDefault();
+            if (!title.value.trim()) { error.textContent = 'Give the agenda a title.'; error.hidden = false; title.focus(); return; }
+            save.disabled = true;
+            request(agenda ? 'PUT' : 'POST', agenda ? data.baseUrl + '/' + agenda.id : data.storeUrl,
+                { date: selected, title: title.value.trim(), time: time.value || null, note: note.value.trim() || null, color: color })
+                .then(function (res) {
+                    if (agenda) data.agendas = data.agendas.map(function (a) { return a.id === agenda.id ? res.agenda : a; });
+                    else data.agendas.push(res.agenda);
+                    editingId = null;
+                    refresh();
+                })
+                .catch(function (msg) { error.textContent = msg; error.hidden = false; save.disabled = false; });
+        });
+        return f;
+    }
+
+    function remove(agenda, button) {
+        if (!confirm('Delete "' + agenda.title + '"?')) return;
+        button.disabled = true;
+        request('DELETE', data.baseUrl + '/' + agenda.id).then(function () {
+            data.agendas = data.agendas.filter(function (a) { return a.id !== agenda.id; });
+            refresh();
+        }).catch(function (msg) { button.disabled = false; alert(msg); });
+    }
+
+    function request(method, url, body) {
+        return fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf, 'X-Requested-With': 'XMLHttpRequest' },
+            body: body ? JSON.stringify(body) : undefined,
+        }).then(function (r) {
+            return r.json().catch(function () { return {}; }).then(function (json) {
+                if (r.ok) return json;
+                var first = json.errors && Object.values(json.errors)[0];
+                throw (first && first[0]) || json.message || 'Could not save. Please try again.';
+            });
+        }, function () { throw 'Could not reach the server. Check your connection.'; });
+    }
+
+    function refresh() { renderMonth(); renderDay(); renderTile(); }
+    function focusFirstField() { var f = document.querySelector('#calDay .cal-form input'); if (f) f.focus(); }
+
+    /* ---------- Open / close ---------- */
+    var overlay = document.getElementById('calOverlay');
+    var modal = document.getElementById('calModal');
+    var tile = document.getElementById('calTile');
+    var closeTimer = null;
+
+    function open() {
+        clearTimeout(closeTimer);
+        view = new Date(today.getFullYear(), today.getMonth(), 1);
+        selected = data.today;
+        editingId = null;
+        renderMonth();
+        renderDay();
+        overlay.hidden = false;
+        document.documentElement.style.overflow = 'hidden';
+        // Grow out of the tile: the pop-up scales from the tile's center.
+        var t = tile.getBoundingClientRect(), m = modal.getBoundingClientRect();
+        modal.style.setProperty('--ox', (t.left + t.width / 2 - m.left) + 'px');
+        modal.style.setProperty('--oy', (t.top + t.height / 2 - m.top) + 'px');
+        requestAnimationFrame(function () {
+            requestAnimationFrame(function () { overlay.classList.add('is-open'); });
+        });
+        var cell = document.querySelector('#calGrid .cal-cell[tabindex="0"]');
+        if (cell) cell.focus({ preventScroll: true });
+    }
+    function close() {
+        overlay.classList.remove('is-open');
+        document.documentElement.style.overflow = '';
+        closeTimer = setTimeout(function () { overlay.hidden = true; }, reduceMotion ? 0 : 340);
+        tile.focus({ preventScroll: true });
+    }
+    function go(delta) {
+        view = new Date(view.getFullYear(), view.getMonth() + delta, 1);
+        renderMonth(delta);
+    }
+    function select(k, focus) {
+        var d = parse(k);
+        if (d.getMonth() !== view.getMonth() || d.getFullYear() !== view.getFullYear()) {
+            var delta = d < view ? -1 : 1;
+            view = new Date(d.getFullYear(), d.getMonth(), 1);
+            selected = k; editingId = null;
+            renderMonth(delta);
+        } else {
+            selected = k; editingId = null;
+            document.querySelectorAll('#calGrid .cal-cell').forEach(function (c) {
+                var on = c.dataset.date === k;
+                c.classList.toggle('sel', on);
+                c.tabIndex = on ? 0 : -1;
+                if (on) c.setAttribute('aria-selected', 'true'); else c.removeAttribute('aria-selected');
+            });
+        }
+        renderDay(true);
+        if (focus) { var c = document.querySelector('#calGrid .cal-cell[data-date="' + k + '"]'); if (c) c.focus(); }
+    }
+
+    tile.addEventListener('click', open);
+    document.getElementById('calClose').addEventListener('click', close);
+    document.getElementById('calPrev').addEventListener('click', function () { go(-1); });
+    document.getElementById('calNext').addEventListener('click', function () { go(1); });
+    document.getElementById('calTodayBtn').addEventListener('click', function () { select(data.today, true); });
+    overlay.addEventListener('mousedown', function (e) { if (e.target === overlay) close(); });
+    document.getElementById('calGrid').addEventListener('click', function (e) {
+        var cell = e.target.closest('.cal-cell');
+        if (cell) select(cell.dataset.date);
+    });
+    document.getElementById('calGrid').addEventListener('keydown', function (e) {
+        var moves = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
+        if (!(e.key in moves)) return;
+        e.preventDefault();
+        var d = parse(selected);
+        select(key(new Date(d.getFullYear(), d.getMonth(), d.getDate() + moves[e.key])), true);
+    });
+    overlay.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+        if (e.key !== 'Tab') return;
+        var f = Array.prototype.filter.call(modal.querySelectorAll('button, input, textarea, [tabindex="0"]'), function (x) { return !x.disabled && x.offsetParent !== null; });
+        if (!f.length) return;
+        if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+        else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+    });
+
+    renderTile();
+})();
 </script>
 </body>
 </html>
