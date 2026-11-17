@@ -7,6 +7,14 @@
 <script>
     // Same saved theme as every module (localStorage 'theme'), applied before paint.
     if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');
+    // Entrance animation plays once per browser session (2026-11-17), and
+    // never with "reduce motion" on — coming back from a module stays instant.
+    try {
+        if (!sessionStorage.getItem('hubIntroSeen') && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            document.documentElement.classList.add('hub-intro');
+            sessionStorage.setItem('hubIntroSeen', '1');
+        }
+    } catch (e) {}
 </script>
 <link rel="icon" type="image/png" href="{{ asset('images/sellershub-favicon-32.png') }}" sizes="32x32">
 <link rel="icon" type="image/png" href="{{ asset('images/sellershub-favicon-64.png') }}" sizes="64x64">
@@ -129,7 +137,7 @@
         flex: 1 1 520px; min-width: 0; margin: 0; font-weight: 800;
         font-size: clamp(38px, 5.2vw, 68px); line-height: 1; letter-spacing: -0.04em;
     }
-    .intro p { flex: 0 1 400px; margin: 0; font-size: 17px; line-height: 1.55; color: var(--muted); }
+    .intro > p { flex: 0 1 400px; margin: 0; font-size: 17px; line-height: 1.55; color: var(--muted); }
     .alert {
         margin: 0 0 16px; padding: 12px 16px; border-radius: 14px; font-size: 14px; font-weight: 600;
         background: rgba(225, 29, 72, 0.12); color: #e11d48;
@@ -208,9 +216,36 @@
         .intro { padding-top: 36px; }
         .hero { padding: 28px; }
     }
+    .greeting { margin: 0 0 14px; font-size: 15px; font-weight: 700; color: var(--muted); }
+    .intro-head { flex: 1 1 520px; min-width: 0; }
+    .intro-head h1 { flex: none; }
+    .word { display: inline-block; }
+
+    /* ---------- Entrance (first Hub load of a session only) ---------- */
+    @keyframes hubRise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+    @keyframes hubFade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes hubGrow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+    .hub-intro .greeting { animation: hubFade 400ms ease-out both; }
+    .hub-intro .intro h1 .word { animation: hubRise 520ms cubic-bezier(.2,.7,.2,1) both; animation-delay: calc(80ms + var(--i) * 70ms); }
+    .hub-intro .intro > p { animation: hubFade 500ms ease-out 420ms both; }
+    .hub-intro .bento > * { animation: hubRise 560ms cubic-bezier(.2,.7,.2,1) both; animation-delay: calc(380ms + var(--n, 0) * 70ms); }
+    .hub-intro .bento > :nth-child(1) { --n: 0; }
+    .hub-intro .bento > :nth-child(2) { --n: 1; }
+    .hub-intro .bento > :nth-child(3) { --n: 2; }
+    .hub-intro .bento > :nth-child(4) { --n: 3; }
+    .hub-intro .bento > :nth-child(5) { --n: 4; }
+    .hub-intro .bento > :nth-child(6) { --n: 5; }
+    .hub-intro .bento > :nth-child(n+7) { --n: 6; }
+    .hub-intro .hero .bars rect { transform-box: fill-box; transform-origin: bottom; animation: hubGrow 520ms cubic-bezier(.2,.7,.2,1) both; }
+    .hub-intro .hero .bars rect:nth-child(1) { animation-delay: 620ms; }
+    .hub-intro .hero .bars rect:nth-child(2) { animation-delay: 690ms; }
+    .hub-intro .hero .bars rect:nth-child(3) { animation-delay: 760ms; }
+    .hub-intro .hero .bars rect:nth-child(4) { animation-delay: 830ms; }
+
     @media (prefers-reduced-motion: reduce) {
         .tile, .arrow, .partner { transition: none; }
         a.tile:hover { transform: none; }
+        .hub-intro * { animation: none !important; }
     }
 </style>
 {{-- Personal accent (Settings → Appearance, 2026-10-30). --}}
@@ -266,8 +301,18 @@
 </header>
 
 <main class="wrap">
+    @php
+        $hour = now()->hour; // app timezone: Asia/Manila
+        $greeting = $hour < 12 ? 'Good morning' : ($hour < 18 ? 'Good afternoon' : 'Good evening');
+        $firstName = \Illuminate\Support\Str::of(auth()->user()->name)->trim()->explode(' ')->first();
+        $headline = [['Where', 'do', 'you', 'want'], ['to', 'work', 'today?']];
+        $wordIndex = 0;
+    @endphp
     <section class="intro">
-        <h1>Where do you want<br>to work today?</h1>
+        <div class="intro-head">
+            <p class="greeting">{{ $greeting }}, {{ $firstName }}</p>
+            <h1 aria-label="Where do you want to work today?">@foreach($headline as $line)<span aria-hidden="true">@foreach($line as $word)<span class="word" style="--i:{{ $wordIndex++ }}">{{ $word }}</span>@if(!$loop->last) @endif @endforeach</span>@if(!$loop->last)<br>@endif @endforeach</h1>
+        </div>
         <p>Everything running the telesales operation, in one place — reporting, TSA performance, and lead assignment.</p>
     </section>
 
