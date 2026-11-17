@@ -47,12 +47,12 @@ class LeadsReportController extends Controller
             $to       = now();
             $from     = now()->startOfHour()->subHours(23);
             $dateFrom = $from->toDateString();
-            \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
             $dateTo   = $to->toDateString();
+            \App\Models\TsaShift::showDeletedFrom($dateFrom, $dateTo); // removed TSAs still show for days up to their removal
         } else {
             $dateFrom = request('date_from', session('filters.leads_report.date_from', now()->format('Y-m-d')));
-            \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
             $dateTo   = request('date_to',   session('filters.leads_report.date_to', $dateFrom));
+            \App\Models\TsaShift::showDeletedFrom($dateFrom, $dateTo); // removed TSAs still show for days up to their removal
             $from     = Carbon::parse($dateFrom)->startOfDay();
             $to       = Carbon::parse($dateTo)->endOfDay();
         }
@@ -723,8 +723,8 @@ class LeadsReportController extends Controller
         $productId   = $request->query('product');
 
         $dateFrom = $request->query('date_from');
-        \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo   = $request->query('date_to', $dateFrom);
+        \App\Models\TsaShift::showDeletedFrom($dateFrom, $dateTo); // removed TSAs still show for days up to their removal
         abort_if(!$dateFrom, 422);
         $from = Carbon::parse($dateFrom)->startOfDay();
         $to   = Carbon::parse($dateTo)->endOfDay();

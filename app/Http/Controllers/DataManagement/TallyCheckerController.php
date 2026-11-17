@@ -78,8 +78,8 @@ class TallyCheckerController extends Controller
     {
         $range = DateRangeFilter::resolve($request, 'tally-checker');
         $dateFrom = $range['from'];
-        \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo   = $range['to'];
+        \App\Models\TsaShift::showDeletedFrom($dateFrom, $dateTo); // removed TSAs still show for days up to their removal
 
         $results = [];
         foreach (Teams::config() as $teamConfig) {

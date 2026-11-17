@@ -80,7 +80,7 @@ class TelesalesDailyController extends Controller
     {
         $data = ['from' => $fromDate, 'to' => $toDate];
         $orderTeams = collect(Teams::config())->pluck('order_team')->all();
-        TsaShift::showDeletedFrom($data['from']);
+        TsaShift::showDeletedFrom($data['from'], $data['to']);
         $tsas = TsaShift::whereIn('team', $orderTeams)->get()->keyBy('tsa_key');
 
         $orders = ProductPerformance::withoutHiddenProductOrders(Order::whereIn('team', $orderTeams)

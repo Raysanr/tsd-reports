@@ -140,6 +140,7 @@ class TsaManagementController extends Controller
             'team'         => $data['team'],
             'active'       => true,
             'sort_order'   => $nextSort,
+            'first_day'        => today()->toDateString(), // reports show her from today on
         ]);
 
         // Teams::nameForOrderTeam(), not the raw $data['team'] string

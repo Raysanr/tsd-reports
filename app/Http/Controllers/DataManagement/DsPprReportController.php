@@ -42,8 +42,8 @@ class DsPprReportController extends Controller
         // week" — explicit decision to make every report page consistent).
         $range = DateRangeFilter::resolve($request, 'dsppr');
         $dateFrom = $range['from'];
-        \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo   = $range['to'];
+        \App\Models\TsaShift::showDeletedFrom($dateFrom, $dateTo); // removed TSAs still show for days up to their removal
         $teamSlug = $request->input('team');
 
         $teams = collect(\App\Support\Teams::config());

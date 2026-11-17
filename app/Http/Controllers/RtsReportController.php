@@ -15,8 +15,8 @@ class RtsReportController extends Controller
     public function index()
     {
         $dateFrom = request('date_from', session('filters.rts_report.date_from', now()->format('Y-m-d')));
-        \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo   = request('date_to',   session('filters.rts_report.date_to', $dateFrom));
+        \App\Models\TsaShift::showDeletedFrom($dateFrom, $dateTo); // removed TSAs still show for days up to their removal
 
         session([
             'filters.rts_report.date_from' => $dateFrom,
@@ -81,8 +81,8 @@ class RtsReportController extends Controller
     {
         $dateFrom = $request->query('date_from');
         abort_if(!$dateFrom, 422);
-        TsaShift::showDeletedFrom($dateFrom); // same roster as index(), so removed TSAs' orders still list
         $dateTo = $request->query('date_to', $dateFrom);
+        TsaShift::showDeletedFrom($dateFrom, $dateTo); // same roster as index(), so removed TSAs' orders still list
         $bucket = match ($request->query('column')) {
             'rts'     => 'returns',
             'shipped' => 'fulfilled',

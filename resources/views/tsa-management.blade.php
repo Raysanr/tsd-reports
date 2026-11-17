@@ -144,7 +144,7 @@
                                    class="w-full text-xs sm:text-sm font-mono font-semibold text-slate-700 dark:text-slate-200 border-0 border-b border-transparent
                                           hover:border-slate-200 dark:hover:border-slate-700 focus:border-yellow-400 focus:outline-none bg-transparent py-0.5 transition-colors truncate"
                                    placeholder="Full name">
-                            <p class="text-[9px] sm:text-[10px] text-slate-400 font-mono truncate">{{ $shift->tsa_key }}<span class="hiddenBadge ml-1 px-1 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 {{ $shift->is_hidden ? '' : 'hidden' }}">Hidden</span></p>
+                            <p class="text-[9px] sm:text-[10px] text-slate-400 font-mono truncate">{{ $shift->tsa_key }}@if($shift->first_day)<span title="Reports show her from this day on"> · from {{ $shift->first_day->format('M j') }}</span>@endif<span class="hiddenBadge ml-1 px-1 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 {{ $shift->is_hidden ? '' : 'hidden' }}">Hidden</span></p>
                         </div>
                     </div>
 

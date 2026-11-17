@@ -56,8 +56,8 @@ class TsaPerformanceController extends Controller
         // page-specific session key so it never collides with Team Report's filters. A
         // fresh session with no prior visit uses the defaults.
         $dateFrom     = request('date_from', session('filters.tsa_performance.date_from', now('Asia/Manila')->format('Y-m-d')));
-        \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo       = request('date_to',   session('filters.tsa_performance.date_to', $dateFrom));
+        \App\Models\TsaShift::showDeletedFrom($dateFrom, $dateTo); // removed TSAs still show for days up to their removal
         $from         = Carbon::parse($dateFrom)->startOfDay();
         $to           = Carbon::parse($dateTo)->endOfDay();
         $selectedTeam = request('team', session('filters.tsa_performance.team', 'sh-naturals'));
@@ -429,8 +429,8 @@ class TsaPerformanceController extends Controller
         // Same date range, same session keys as the main hourly view — this page is a
         // drill-down of it, not an independent filter context.
         $dateFrom = request('date_from', session('filters.tsa_performance.date_from', now('Asia/Manila')->format('Y-m-d')));
-        \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo   = request('date_to',   session('filters.tsa_performance.date_to', $dateFrom));
+        \App\Models\TsaShift::showDeletedFrom($dateFrom, $dateTo); // removed TSAs still show for days up to their removal
         $from     = Carbon::parse($dateFrom)->startOfDay();
         $to       = Carbon::parse($dateTo)->endOfDay();
 
@@ -752,7 +752,7 @@ class TsaPerformanceController extends Controller
 
         $dateFrom = $request->query('date_from');
         abort_if(!$dateFrom, 422);
-        \App\Models\TsaShift::showDeletedFrom($dateFrom);
+        \App\Models\TsaShift::showDeletedFrom($dateFrom, $request->query('date_to', $dateFrom));
         $from = Carbon::parse($dateFrom)->startOfDay();
         $to   = Carbon::parse($request->query('date_to', $dateFrom))->endOfDay();
 
@@ -786,8 +786,8 @@ class TsaPerformanceController extends Controller
         $team        = $request->query('team');
 
         $dateFrom = $request->query('date_from');
-        \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo   = $request->query('date_to', $dateFrom);
+        \App\Models\TsaShift::showDeletedFrom($dateFrom, $dateTo); // removed TSAs still show for days up to their removal
         abort_if(!$dateFrom, 422);
         $from = Carbon::parse($dateFrom)->startOfDay();
         $to   = Carbon::parse($dateTo)->endOfDay();

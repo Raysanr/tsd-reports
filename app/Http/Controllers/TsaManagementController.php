@@ -192,6 +192,7 @@ class TsaManagementController extends Controller
             'rest_day_of_week' => $data['rest_day_of_week'] ?? null,
             'drive_folder_name' => $this->driveFolderName($data),
             'sort_order'       => $nextSort,
+            'first_day'        => today()->toDateString(), // reports show her from today on
             'tiktok_upsell'    => $data['tiktok_upsell'] ?? false,
         ]);
 

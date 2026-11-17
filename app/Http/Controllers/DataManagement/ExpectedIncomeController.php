@@ -122,8 +122,8 @@ class ExpectedIncomeController extends Controller
         $range = DateRangeFilter::resolve($request, static::RANGE_SESSION_KEY);
         $dateFrom = $range['from'];
         \App\Support\ProjectionMonth::set(substr($dateFrom, 0, 7)); // that month's Projections rows
-        \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo   = $range['to'];
+        \App\Models\TsaShift::showDeletedFrom($dateFrom, $dateTo); // removed TSAs still show for days up to their removal
 
         $teamsConfig = Teams::config();
         $selectedTeam = $this->resolveSelectedTeam($request, $teamsConfig);
@@ -723,8 +723,8 @@ class ExpectedIncomeController extends Controller
         $range = DateRangeFilter::resolve($request, static::RANGE_SESSION_KEY);
         $dateFrom = $range['from'];
         \App\Support\ProjectionMonth::set(substr($dateFrom, 0, 7)); // that month's Projections rows
-        \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo   = $range['to'];
+        \App\Models\TsaShift::showDeletedFrom($dateFrom, $dateTo); // removed TSAs still show for days up to their removal
 
         $teamsConfig = Teams::config();
         $selectedTeam = $this->resolveSelectedTeam($request, $teamsConfig);
@@ -791,7 +791,7 @@ class ExpectedIncomeController extends Controller
     public function overallTotals(string $dateFrom, string $dateTo): array
     {
         \App\Support\ProjectionMonth::set(substr($dateFrom, 0, 7));
-        \App\Models\TsaShift::showDeletedFrom($dateFrom);
+        \App\Models\TsaShift::showDeletedFrom($dateFrom, $dateTo);
 
         $products = self::reportProducts();
         $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());

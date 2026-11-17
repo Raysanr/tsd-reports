@@ -29,6 +29,6 @@ class TsaRosterScope extends SoftDeletingScope
             return;
         }
 
-        TsaShift::applyRosterWindow($builder, $from, $model->getQualifiedDeletedAtColumn());
+        TsaShift::applyRosterWindow($builder, $from, $model->getQualifiedDeletedAtColumn(), TsaShift::rosterTo() ?? false);
     }
 }

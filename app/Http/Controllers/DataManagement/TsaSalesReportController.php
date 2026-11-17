@@ -368,19 +368,12 @@ class TsaSalesReportController extends Controller
     }
 
     /** Whether $tsa was on the department roster on $date: not hidden (for
-     *  that month), and not removed before it — her last working day, or the
+     *  that month), not added after it (first_day), and not removed before it — her last working day, or the
      *  day she was removed when none was saved (same cutoff as
      *  TsaShift::applyRosterWindow()). Sales Summary's # of TSA total. */
     private static function onRosterOn(TsaShift $tsa, string $date): bool
     {
-        if ($tsa->is_hidden) {
-            return false;
-        }
-        if ($tsa->deleted_at === null) {
-            return true;
-        }
-
-        return ($tsa->last_day ?? $tsa->deleted_at)->toDateString() >= $date;
+        return !$tsa->is_hidden && $tsa->workedOn($date);
     }
 
     /** A team's Catered and Excess Leads for one day, counted exactly like Leads
@@ -416,7 +409,7 @@ class TsaSalesReportController extends Controller
     /** Everything index() renders, for one date range on the current dataset. */
     private function buildReportData(string $dateFrom, string $dateTo): array
     {
-        \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
+        \App\Models\TsaShift::showDeletedFrom($dateFrom, $dateTo); // removed TSAs still show for days up to their removal
 
         // Explicit request, 2026-09-28: "make the opening is in first and
         // the closing is in last" — config('teams') itself lists

@@ -31,6 +31,8 @@ class TsaShift extends Model
         'tiktok_upsell',
         // A removed TSA's last working day — see applyRosterWindow().
         'last_day',
+        // A newly added TSA's first working day — see applyRosterWindow().
+        'first_day',
         // Display-only "eye" toggle — see add_is_hidden_to_tsa_shifts_table.
         'is_hidden',
         // Auto-text from this TSA's own phone — see LeadAutoText.
@@ -57,16 +59,35 @@ class TsaShift extends Model
      *  on/after that day still shows (her old data); later ranges drop her.
      *  Stored on the current Request, so it never leaks into another
      *  request under Octane, and is a no-op outside HTTP. */
-    public static function showDeletedFrom($date): void
+    public static function showDeletedFrom($date, $to = null): void
     {
         if (app()->bound('request')) {
             app('request')->attributes->set('tsa_roster_from', \Illuminate\Support\Carbon::parse($date)->toDateString());
+            // The range's last day: a TSA added on or before it is on the
+            // page (2026-11-17). Not given = no added-day cutoff here.
+            app('request')->attributes->set('tsa_roster_to', $to ? \Illuminate\Support\Carbon::parse($to)->toDateString() : null);
         }
     }
 
     public static function rosterFrom(): ?string
     {
         return app()->bound('request') ? app('request')->attributes->get('tsa_roster_from') : null;
+    }
+
+    public static function rosterTo(): ?string
+    {
+        return app()->bound('request') ? app('request')->attributes->get('tsa_roster_to') : null;
+    }
+
+    /** Whether she was on the roster on $date by her start and end days
+     *  (first_day / last working day), same cutoffs as applyRosterWindow(). */
+    public function workedOn(string $date): bool
+    {
+        if ($this->first_day !== null && $this->first_day->toDateString() > $date) {
+            return false;
+        }
+
+        return $this->deleted_at === null || $this->lastWorkingDay()->toDateString() >= $date;
     }
 
     /** The last working day to save when removing her. Restoring and removing
@@ -106,13 +127,24 @@ class TsaShift extends Model
     /** Limits $query to the TSAs on the roster for $date (explicit request,
      *  2026-11-04): a removed TSA shows up to and including her last working
      *  day (last_day, else her removal date), on every page alike. */
-    public static function applyRosterWindow($query, string $date, string $deletedAt = 'deleted_at'): void
+    public static function applyRosterWindow($query, string $date, string $deletedAt = 'deleted_at', string|false|null $addedBy = null): void
     {
-        $lastDay = substr($deletedAt, 0, -strlen('deleted_at')) . 'last_day';
+        $prefix = substr($deletedAt, 0, -strlen('deleted_at'));
+        $lastDay = $prefix . 'last_day';
         $day = \Illuminate\Support\Carbon::parse($date)->toDateString();
         $query->where(fn ($q) => $q->whereNull($deletedAt)
             ->orWhere(fn ($q) => $q->whereNotNull($lastDay)->where($lastDay, '>=', $day))
             ->orWhere(fn ($q) => $q->whereNull($lastDay)->where($deletedAt, '>=', $day . ' 00:00:00')));
+
+        // A newly added TSA shows from her first working day onwards
+        // (explicit request, 2026-11-17). $addedBy: the last day she may
+        // start by — $date itself by default (one day), a page's range end,
+        // or false for no cutoff.
+        if ($addedBy !== false) {
+            $firstDay = $prefix . 'first_day';
+            $by = \Illuminate\Support\Carbon::parse($addedBy ?? $date)->toDateString();
+            $query->where(fn ($q) => $q->whereNull($firstDay)->orWhere($firstDay, '<=', $by));
+        }
     }
 
     /** Route-bound edits on a dated cell (Expected Income / Summary Sales
@@ -129,6 +161,7 @@ class TsaShift extends Model
 
     protected $casts = [
         'last_day' => 'date',
+        'first_day' => 'date',
         'active' => 'boolean',
         'is_hidden' => 'boolean',
         'previous_last_day' => 'date',

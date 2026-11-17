@@ -19,8 +19,8 @@ class ChartsController extends Controller
         // Default range is the last 14 days ending today — long enough to show a
         // real trend, short enough to stay readable on a line chart.
         $dateFrom = request('date_from', session('filters.charts.date_from', now()->subDays(13)->toDateString()));
-        \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo   = request('date_to',   session('filters.charts.date_to',   now()->toDateString()));
+        \App\Models\TsaShift::showDeletedFrom($dateFrom, $dateTo); // removed TSAs still show for days up to their removal
         session(['filters.charts.date_from' => $dateFrom, 'filters.charts.date_to' => $dateTo]);
 
         $from = Carbon::parse($dateFrom)->startOfDay();

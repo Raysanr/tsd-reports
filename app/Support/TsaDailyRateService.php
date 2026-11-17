@@ -60,8 +60,14 @@ class TsaDailyRateService
         // still counts; one removed before it doesn't — so from the day
         // after a removal, every split goes to the remaining TSAs only.
         // On Data Management pages, from the removal day itself (2026-11-01).
-        return RequestMemo::remember("tsa_daily_rate.tsas:{$date}", fn () => TsaShift::withTrashed()
-            ->tap(fn ($q) => TsaShift::applyRosterWindow($q, $date))
+        // A newly added TSA counts from her first working day (2026-11-17);
+        // on Cost Breakdown (a month page) from the month she was added.
+        $addedBy = app()->bound('request') && app('request')->attributes->get('cost_context_monthly')
+            ? \Illuminate\Support\Carbon::parse($date)->endOfMonth()->toDateString()
+            : $date;
+
+        return RequestMemo::remember("tsa_daily_rate.tsas:{$date}:{$addedBy}", fn () => TsaShift::withTrashed()
+            ->tap(fn ($q) => TsaShift::applyRosterWindow($q, $date, 'deleted_at', $addedBy))
             ->get()
             ->filter(fn (TsaShift $tsa) => self::belongsToMonth($tsa, substr($date, 0, 7), self::costBreakdownTsaEntriesByTsaId()))
             ->values());
@@ -108,9 +114,11 @@ class TsaDailyRateService
 
     /** Sets the context day for the rest of this request (Cost Breakdown
      *  page: the picked month). */
-    public static function setContextDate(string $date): void
+    public static function setContextDate(string $date, bool $monthly = false): void
     {
         app('request')->attributes->set('cost_context_date', $date);
+        // Cost Breakdown: TSAs added later in the month count too.
+        app('request')->attributes->set('cost_context_monthly', $monthly);
     }
 
     /** The Cost Breakdown month that applies to contextDate(). */

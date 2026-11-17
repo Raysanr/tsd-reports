@@ -362,8 +362,8 @@ class CostBreakdownController extends Controller
     private function enterMonth(string $month): string
     {
         $date = $month === CostBreakdownMonths::current() ? now('Asia/Manila')->toDateString() : $month . '-01';
-        TsaDailyRateService::setContextDate($date);
-        TsaShift::showDeletedFrom($date);
+        TsaDailyRateService::setContextDate($date, monthly: true);
+        TsaShift::showDeletedFrom($date, \Illuminate\Support\Carbon::parse($date)->endOfMonth()->toDateString());
 
         return CostBreakdownMonths::effective($month);
     }
