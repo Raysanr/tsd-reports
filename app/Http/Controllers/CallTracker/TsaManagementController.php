@@ -101,6 +101,7 @@ class TsaManagementController extends Controller
             'midnightAutoLogoutEnabled' => (bool) Setting::get('midnight_auto_logout_enabled', true),
             'autoSmsEnabled' => LeadAutoText::enabled(),
             'autoCallEnabled' => \App\Support\AutoCall::enabled(),
+            'wrapUpSeconds' => \App\Console\Commands\ExpireWrapUpStatuses::seconds(),
         ];
 
         // Same X-Table-Refresh convention as Leads Setup's own team-filter
@@ -451,6 +452,34 @@ class TsaManagementController extends Controller
 
         return $request->wantsJson()
             ? response()->json(['success' => true, 'message' => $message, 'enabled' => $enabled])
+            : redirect()->route('calls.tsa-management')->with('success', $message);
+    }
+
+    /** Wrap Up length before auto Ready to Call (2026-11-17) — seconds or
+     *  minutes in the UI, stored as seconds. See ExpireWrapUpStatuses. */
+    public function updateWrapUpLength(Request $request)
+    {
+        $min = \App\Console\Commands\ExpireWrapUpStatuses::MIN_SECONDS;
+        $max = \App\Console\Commands\ExpireWrapUpStatuses::MAX_SECONDS;
+        $data = $request->validate([
+            'value' => 'required|integer|min:1|max:3600',
+            'unit'  => 'required|in:seconds,minutes',
+        ]);
+        $seconds = $data['value'] * ($data['unit'] === 'minutes' ? 60 : 1);
+        if ($seconds < $min || $seconds > $max) {
+            $msg = "Wrap Up must be between {$min} seconds and " . ($max / 60) . ' minutes.';
+            return $request->wantsJson()
+                ? response()->json(['success' => false, 'message' => $msg], 422)
+                : back()->with('error', $msg);
+        }
+        Setting::set('wrap_up_seconds', $seconds);
+
+        $label = $seconds % 60 === 0 ? ($seconds / 60) . ' min' : "{$seconds} sec";
+        $message = "Wrap Up set to {$label} — TSAs go back to Ready to Call after that.";
+        ActivityLogger::log('tsa.wrap_up_length_changed', null, $message);
+
+        return $request->wantsJson()
+            ? response()->json(['success' => true, 'message' => $message, 'seconds' => $seconds])
             : redirect()->route('calls.tsa-management')->with('success', $message);
     }
 

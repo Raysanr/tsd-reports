@@ -106,6 +106,24 @@
             </button>
         </div>
 
+        {{-- Wrap Up length (2026-11-17) — how long after a call before the
+             TSA goes back to Ready to Call (and auto-call dials again).
+             Stored as seconds; see ExpireWrapUpStatuses. --}}
+        @php($wrapInMinutes = $wrapUpSeconds % 60 === 0)
+        <form id="wrapUpForm" data-action="{{ route('calls.tsa-management.wrap-up-length') }}"
+              class="flex items-center gap-1.5" title="How long Wrap Up lasts after a call before the TSA is set back to Ready to Call (5 seconds to 60 minutes).">
+            <label for="wrapUpValue" class="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">Wrap Up</label>
+            <input id="wrapUpValue" type="number" min="1" max="3600" step="1" required
+                   value="{{ $wrapInMinutes ? $wrapUpSeconds / 60 : $wrapUpSeconds }}"
+                   class="w-16 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-xs font-mono text-slate-700 dark:text-slate-200">
+            <select id="wrapUpUnit" aria-label="Wrap Up unit"
+                    class="rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-1.5 py-1 text-xs font-mono text-slate-700 dark:text-slate-200">
+                <option value="seconds" @selected(! $wrapInMinutes)>sec</option>
+                <option value="minutes" @selected($wrapInMinutes)>min</option>
+            </select>
+            <button type="submit" class="rounded-md bg-primary hover:bg-primary-dark px-2 py-1 text-xs font-semibold font-mono text-white cursor-pointer">Save</button>
+        </form>
+
         <button type="button" id="addTsaBtn"
                 class="inline-flex items-center gap-2 bg-primary hover:bg-primary-dark text-white text-sm font-semibold font-mono px-4 py-2 rounded-lg cursor-pointer shrink-0">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -502,6 +520,37 @@
                 .then((data) => window.showToast?.(data.message || 'Saved.', 'success'))
                 .catch(() => { paintAutoCall(!next); window.showToast?.('Could not save — try again.', 'error'); })
                 .finally(() => { autoCallToggle.disabled = false; });
+        });
+    }
+
+    // Wrap Up length (2026-11-17).
+    const wrapUpForm = document.getElementById('wrapUpForm');
+    if (wrapUpForm) {
+        wrapUpForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const btn = wrapUpForm.querySelector('button[type="submit"]');
+            btn.disabled = true;
+            const body = new URLSearchParams({
+                value: document.getElementById('wrapUpValue').value,
+                unit: document.getElementById('wrapUpUnit').value,
+            });
+            fetch(wrapUpForm.dataset.action, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                },
+                body: body.toString(),
+            })
+                .then(async (res) => {
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) throw new Error(data.message || 'Could not save — try again.');
+                    window.showToast?.(data.message || 'Saved.', 'success');
+                })
+                .catch((err) => window.showToast?.(err.message || 'Could not save — try again.', 'error'))
+                .finally(() => { btn.disabled = false; });
         });
     }
 

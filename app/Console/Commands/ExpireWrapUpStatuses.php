@@ -7,7 +7,8 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 
 /**
- * Auto-expires Wrap Up back to Ready to Call after 1 minute (explicit
+ * Auto-expires Wrap Up back to Ready to Call after the length set in TSA
+ * Management (default 1 minute; editable since 2026-11-17). Originally (explicit
  * request, 2026-09-24: "after call it will be wrap up and then after 1min
  * wrap up it will be ready to call"). This is a genuine policy reversal —
  * an earlier version of this same command was removed 2026-09-01 because
@@ -33,11 +34,38 @@ use Illuminate\Support\Carbon;
 class ExpireWrapUpStatuses extends Command
 {
     protected $signature   = 'calls:expire-wrap-up-statuses';
-    protected $description = 'Auto-switches any TSA who has been in Wrap Up for 1+ minute to Ready to Call';
+    protected $description = 'Auto-switches any TSA whose Wrap Up has run its set length to Ready to Call';
+
+    /** Wrap Up length (2026-11-17: editable in TSA Management, seconds or
+     *  minutes). Stored in seconds; default 60 = the original 1 minute. */
+    public const DEFAULT_SECONDS = 60;
+    public const MIN_SECONDS     = 5;
+    public const MAX_SECONDS     = 3600;
+
+    public static function seconds(): int
+    {
+        $v = (int) \App\Models\Setting::get('wrap_up_seconds', self::DEFAULT_SECONDS);
+
+        return max(self::MIN_SECONDS, min(self::MAX_SECONDS, $v));
+    }
+
+    /** Flip one TSA to Ready to Call if their Wrap Up has run out. Called by
+     *  the auto-call poll (every ~4s) so short lengths like 10s land on time,
+     *  not on the next scheduler tick. */
+    public static function expireIfDue(TsaShift $tsa): bool
+    {
+        if ($tsa->status !== TsaShift::STATUS_WRAP_UP || ! $tsa->status_changed_at
+            || $tsa->status_changed_at->gt(Carbon::now()->subSeconds(self::seconds()))) {
+            return false;
+        }
+        $tsa->applyStatusChange(TsaShift::STATUS_READY_TO_CALL);
+
+        return true;
+    }
 
     public function handle(): int
     {
-        $cutoff = Carbon::now()->subMinute();
+        $cutoff = Carbon::now()->subSeconds(self::seconds());
 
         $tsas = TsaShift::where('status', TsaShift::STATUS_WRAP_UP)
             ->where('status_changed_at', '<=', $cutoff)
@@ -49,7 +77,7 @@ class ExpireWrapUpStatuses extends Command
 
         foreach ($tsas as $tsa) {
             $tsa->applyStatusChange(TsaShift::STATUS_READY_TO_CALL);
-            $this->line("{$tsa->display_name}: Wrap Up -> Ready to Call (1 min elapsed).");
+            $this->line("{$tsa->display_name}: Wrap Up -> Ready to Call (" . self::seconds() . "s elapsed).");
         }
 
         $this->info("Expired Wrap Up for {$tsas->count()} TSA(s).");

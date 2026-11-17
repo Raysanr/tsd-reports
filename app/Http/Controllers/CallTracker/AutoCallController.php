@@ -13,6 +13,9 @@ class AutoCallController extends Controller
     public function next(Request $request)
     {
         $tsa = $request->user()->tsa;
+        if ($tsa) {
+            \App\Console\Commands\ExpireWrapUpStatuses::expireIfDue($tsa->fresh());
+        }
         $lead = $tsa ? AutoCall::next($tsa->fresh()) : null;
 
         return response()->json(['lead' => $lead ? [

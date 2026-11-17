@@ -221,7 +221,10 @@ Schedule::command(SyncPancakeLeads::class)->everyMinute()->withoutOverlapping(10
 // a 1-minute poll to ever fire on time, and the shared mutex-window
 // convention (2026-08-21 fix) keeps a redeploy mid-run from wedging this
 // one for 24h same as it would any other every-minute job here.
-Schedule::command(ExpireWrapUpStatuses::class)->everyMinute()->withoutOverlapping(10);
+// 2026-11-17: length is now editable (seconds or minutes, TSA Management),
+// so this runs every 10s — a 15s Wrap Up shouldn't wait for the next minute.
+// Auto-call TSAs are also expired on their own ~4s poll (AutoCallController).
+Schedule::command(ExpireWrapUpStatuses::class)->everyTenSeconds()->withoutOverlapping(10);
 
 // Force-logs-out every still-logged-in TSA at Manila midnight — explicit
 // request, 2026-09-21, directly tied to a real same-day incident: Hannah
