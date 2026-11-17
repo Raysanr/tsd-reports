@@ -7,12 +7,11 @@
 <script>
     // Same saved theme as every module (localStorage 'theme'), applied before paint.
     if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');
-    // Entrance animation plays once per browser session (2026-11-17), and
-    // never with "reduce motion" on — coming back from a module stays instant.
+    // Entrance animation on every Hub visit (explicit request, 2026-11-17),
+    // never with "reduce motion" on.
     try {
-        if (!sessionStorage.getItem('hubIntroSeen') && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
             document.documentElement.classList.add('hub-intro');
-            sessionStorage.setItem('hubIntroSeen', '1');
         }
     } catch (e) {}
 </script>
