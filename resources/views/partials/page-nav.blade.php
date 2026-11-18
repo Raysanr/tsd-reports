@@ -53,7 +53,7 @@
     if (window.__pageNavLoading) return;
     window.__pageNavLoading = true;
 
-    var SKIP = /\/(logout|auth|cron)(\/|$)|export|download|stream/i;
+    var SKIP = /\/(logout|auth|cron)(\/|$)|export|download|stream|\.(csv|xlsx?|pdf|png|zip|json)$/i;
     var overlay = null, safety = null, pending = null;
 
     function hide() {
@@ -77,7 +77,10 @@
         hide();
         pending = setTimeout(reveal, 150);
         // A link that turned out to be a file download never leaves the page.
-        safety = setTimeout(hide, 20000);
+        // 2 min, not 20s (2026-11-18): slow pages like Data Management on
+        // Railway can take over 20s, and the skeleton vanished mid-load.
+        // File links are skipped up front (SKIP), so this is a last resort.
+        safety = setTimeout(hide, 120000);
     }
 
     function reveal() {

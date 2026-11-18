@@ -399,6 +399,42 @@
         .cal-head { padding: 16px; }
     }
 
+    /* Big monitors (2026-11-18): wider page and slightly larger type so the
+       Hub doesn't sit small in the middle. Laptops (<1800px) are unchanged. */
+    @media (min-width: 1800px) {
+        .wrap { max-width: 1600px; }
+        .bento { gap: 20px; grid-auto-rows: minmax(290px, auto); }
+        .intro { padding: 72px 8px 44px; }
+        .intro h1 { font-size: 78px; }
+        .intro > p { flex-basis: 460px; font-size: 19px; }
+        .greeting { font-size: 17px; }
+        .tile { padding: 32px; }
+        .tile h3 { font-size: 27px; }
+        .tile p { font-size: 15.5px; }
+        .tile-icon { width: 58px; height: 58px; }
+        .hero h2 { font-size: 62px; }
+        .hero p { font-size: 17px; max-width: 520px; }
+        .partners-head h2 { font-size: 24px; }
+        .partner-name { font-size: 16px; }
+        .cal-big { font-size: 72px; }
+        .cal-next-item { font-size: 14px; }
+        .cal-mini-grid .d { height: 32px; font-size: 13px; }
+    }
+    @media (min-width: 2300px) {
+        .wrap { max-width: 1880px; }
+        .bento { gap: 24px; grid-auto-rows: minmax(330px, auto); }
+        .intro h1 { font-size: 92px; }
+        .intro > p { flex-basis: 520px; font-size: 21px; }
+        .greeting { font-size: 19px; }
+        .tile { padding: 38px; }
+        .tile h3 { font-size: 31px; }
+        .tile p { font-size: 17px; }
+        .hero h2 { font-size: 72px; }
+        .hero p { font-size: 19px; max-width: 600px; }
+        .cal-big { font-size: 84px; }
+        .cal-mini-grid .d { height: 36px; font-size: 14px; }
+    }
+
     @media (prefers-reduced-motion: reduce) {
         .cal-modal, .cal-overlay { transition: none !important; transform: none !important; }
         .cal-grid, .cal-day { animation: none !important; }
