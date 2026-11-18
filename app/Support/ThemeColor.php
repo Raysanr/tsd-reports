@@ -161,6 +161,13 @@ class ThemeColor
         return $hex;
     }
 
+    /** Too light for white button text — buttons switch to dark text
+     *  (html.accent-light in app.css/calls.css) instead. */
+    public static function accentIsLight(): bool
+    {
+        return self::contrastWithWhite(self::accent()) < self::MIN_ACCENT_CONTRAST;
+    }
+
     /** A light sidebar needs dark menu text (html.sidebar-light in app.css/calls.css). */
     public static function sidebarIsLight(): bool
     {
@@ -174,7 +181,10 @@ class ThemeColor
 
         $accent = self::accent();
         if ($accent !== self::ACCENT_DEFAULT) {
-            $s = self::scale(self::readableAccent($accent));
+            // Exact color as picked (2026-11-18) — light accents get dark
+            // button text (html.accent-light + --on-accent-*) instead of
+            // being deepened, which turned a lemon yellow into mustard.
+            $s = self::scale($accent);
             foreach ($s as $shade => $c) {
                 $vars[] = "--color-yellow-{$shade}:{$c}";
                 $vars[] = "--color-amber-{$shade}:{$c}";

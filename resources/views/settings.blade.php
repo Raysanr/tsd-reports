@@ -576,7 +576,7 @@
                 <p class="text-xs text-yellow-800 dark:text-yellow-200 leading-relaxed"><span class="font-semibold">These colors are just for you.</span> Everyone picks their own look; nobody else's screen changes when you save.</p>
             </div>
             @foreach([
-                'accent'  => ['Accent color', 'Buttons, links, the active menu item, menu text, filters and charts. Status colors such as green for answered and red for unanswered stay the same.', \App\Support\ThemeColor::ACCENT_PRESETS, \App\Support\ThemeColor::accent(), \App\Support\ThemeColor::ACCENT_DEFAULT, 'Very light colors are deepened slightly on buttons so white text stays readable.'],
+                'accent'  => ['Accent color', 'Buttons, links, the active menu item, menu text, filters and charts. Status colors such as green for answered and red for unanswered stay the same.', \App\Support\ThemeColor::ACCENT_PRESETS, \App\Support\ThemeColor::accent(), \App\Support\ThemeColor::ACCENT_DEFAULT, 'Used exactly as picked. Light colors get dark button text so it stays readable.'],
                 'sidebar' => ['Sidebar color', 'The background of the left menu. Light colors switch the menu to dark text automatically; in dark mode a light sidebar turns dark navy to match the page.', \App\Support\ThemeColor::SIDEBAR_PRESETS, \App\Support\ThemeColor::sidebar(), \App\Support\ThemeColor::SIDEBAR_DEFAULT, 'Any color works: dark for a bold menu, light or white for a clean, airy one.'],
                 'text'    => ['Text color', 'Phone numbers, links, highlighted figures and badge text. Adapts to light and dark mode on its own: deepened on white, lightened on the dark page, so it always stays readable.', \App\Support\ThemeColor::TEXT_PRESETS, \App\Support\ThemeColor::text() ?? '', '', 'Leave it on Match accent to follow your accent color.'],
             ] as $slot => [$slotTitle, $slotHelp, $slotPresets, $slotCurrent, $slotDefault, $slotHint])
@@ -771,10 +771,11 @@
     const rgbOf = (hex) => { const n = parseInt(hex.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
     const toHex = (rgb) => '#' + rgb.map(c => Math.round(c).toString(16).padStart(2, '0')).join('').toUpperCase();
     const lum = (hex) => { const [r, g, b] = rgbOf(hex).map(c => { c /= 255; return c <= .03928 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4; }); return .2126 * r + .7152 * g + .0722 * b; };
-    function readable(hex) {
-        for (let i = 0; i < 40 && 1.05 / (lum(hex) + .05) < {{ \App\Support\ThemeColor::MIN_ACCENT_CONTRAST }}; i++) hex = toHex(rgbOf(hex).map(c => c * .95));
-        return hex;
-    }
+    // Same as ThemeColor::accentIsLight() / onAccent(): the accent is used
+    // exactly as picked; light ones get dark text on solid fills instead.
+    const isLight = (hex) => 1.05 / (lum(hex) + .05) < {{ \App\Support\ThemeColor::MIN_ACCENT_CONTRAST }};
+    const contrast = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05); };
+    const onAccent = (bg) => contrast(bg, '#201C12') >= contrast(bg, '#F1F5F9') ? '#201C12' : '#F1F5F9';
     // Same as ThemeColor::readableTextLight()/readableTextDark(): accent text
     // deepened until readable on white, lightened until readable on #0F172A.
     const DARK_BG = lum('#0F172A'), MIN_TEXT = {{ \App\Support\ThemeColor::MIN_TEXT_CONTRAST }};
@@ -793,14 +794,16 @@
         accent(picked) {
             currentAccent = picked;
             applyText();
-            const hex = readable(picked);
-            adjustedNote.classList.toggle('hidden', hex === picked);
-            adjustedNote.textContent = hex === picked ? '' : `${picked} is too light for white button text, so buttons use the deeper ${hex}. Lighter tints of your color are still used for highlights.`;
+            const hex = picked, light = isLight(hex);
+            document.documentElement.classList.toggle('accent-light', light);
+            adjustedNote.classList.toggle('hidden', !light);
+            adjustedNote.textContent = light ? `${picked} is light, so buttons in this color use dark text.` : '';
             const n = parseInt(hex.slice(1), 16), rgb = [n >> 16 & 255, n >> 8 & 255, n & 255], sc = {};
             Object.entries(STEPS).forEach(([k, [to, a]]) => {
                 const t = to === 'w' ? 255 : 0;
                 sc[k] = '#' + rgb.map(c => Math.round(c + (t - c) * a).toString(16).padStart(2, '0')).join('');
                 st.setProperty('--color-yellow-' + k, sc[k]); st.setProperty('--color-amber-' + k, sc[k]);
+                if (k >= 500 && k <= 800 && k % 100 === 0) st.setProperty('--on-accent-' + k, onAccent(sc[k]));
             });
             st.setProperty('--color-primary', sc[600]); st.setProperty('--color-primary-dark', sc[800]);
             st.setProperty('--color-secondary', sc[500]); st.setProperty('--color-accent', sc[700]);

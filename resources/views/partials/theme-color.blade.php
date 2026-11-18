@@ -4,6 +4,7 @@
 @php($themeCss = \App\Support\ThemeColor::css())
 @if($themeCss)<style id="themeColorVars">{!! $themeCss !!}</style>@endif
 @if(\App\Support\ThemeColor::textRulesOn())<script>document.documentElement.classList.add('theme-text');</script>@endif
+@if(\App\Support\ThemeColor::accentIsLight())<script>document.documentElement.classList.add('accent-light');</script>@endif
 @if(\App\Support\ThemeColor::sidebarIsLight())<script>document.documentElement.classList.add('sidebar-light');</script>@endif
 <script>
 {{-- Charts draw on <canvas>, which can't read CSS variables — themeColor()

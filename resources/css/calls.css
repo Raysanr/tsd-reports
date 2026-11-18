@@ -111,7 +111,7 @@ body { font-family: var(--font-sans); background: var(--color-canvas); }
 /* Settings section list (left of the Settings card) — MLC layout, 2026-10-30. */
 .side-tab { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; font-size: 13.5px; font-weight: 500; color: #64748B; text-align: left; white-space: nowrap; cursor: pointer; transition: background .15s, color .15s; }
 .side-tab:hover { background: #fff; color: #0F172A; }
-.side-tab[aria-selected="true"] { background: #fff; color: var(--color-yellow-700); font-weight: 600; box-shadow: 0 0 0 1px #E2E8F0; }
+.side-tab[aria-selected="true"] { background: #fff; color: var(--theme-text, var(--color-yellow-700)); font-weight: 600; box-shadow: 0 0 0 1px #E2E8F0; }
 .dark .side-tab { color: #94A3B8; }
 .dark .side-tab:hover { background: #0F172A; color: #F1F5F9; }
 .dark .side-tab[aria-selected="true"] { background: #0F172A; color: var(--color-yellow-300); box-shadow: 0 0 0 1px #334155; }
@@ -124,12 +124,12 @@ html.sidebar-light:not(.dark) :is(#sidebar, .sidebar-surface) { box-shadow: inse
 html.sidebar-light:not(.dark) :is(#sidebar, .sidebar-surface) :is(.text-yellow-200, .text-yellow-300) { color: #334155; }
 html.sidebar-light:not(.dark) :is(#sidebar, .sidebar-surface) .text-white:not([class*="bg-"]) { color: #0F172A; }
 html.sidebar-light:not(.dark) :is(#sidebar, .sidebar-surface) :is(.text-yellow-400\/60, .text-yellow-400\/50, .text-yellow-200\/70) { color: #94A3B8; }
-html.sidebar-light:not(.dark) :is(#sidebar, .sidebar-surface) .text-yellow-400 { color: var(--color-yellow-700); }
+html.sidebar-light:not(.dark) :is(#sidebar, .sidebar-surface) .text-yellow-400 { color: var(--theme-text, var(--color-yellow-700)); }
 html.sidebar-light:not(.dark) :is(#sidebar, .sidebar-surface) .border-white\/10 { border-color: #E2E8F0; }
 html.sidebar-light:not(.dark) :is(#sidebar, .sidebar-surface) :is(.nav-item:hover, .hover\:bg-white\/10:hover) { background: #F1F5F9; color: #0F172A; }
 html.sidebar-light:not(.dark) :is(#sidebar, .sidebar-surface) .hover\:text-white:hover { color: #0F172A; }
-html.sidebar-light:not(.dark) :is(#sidebar, .sidebar-surface) .nav-active { background: color-mix(in srgb, var(--color-yellow-600) 12%, white) !important; color: var(--color-yellow-700) !important; border-left-color: var(--color-yellow-600); }
-html.sidebar-light:not(.dark) :is(#sidebar, .sidebar-surface) .nav-active :is(svg, span, .text-yellow-200, .text-white) { color: var(--color-yellow-700); }
+html.sidebar-light:not(.dark) :is(#sidebar, .sidebar-surface) .nav-active { background: color-mix(in srgb, var(--color-yellow-600) 12%, white) !important; color: var(--theme-text, var(--color-yellow-700)) !important; border-left-color: var(--color-yellow-600); }
+html.sidebar-light:not(.dark) :is(#sidebar, .sidebar-surface) .nav-active :is(svg, span, .text-yellow-200, .text-white) { color: var(--theme-text, var(--color-yellow-700)); }
 /* Dark mode with a light sidebar color: a light menu next to a dark page
    glares, so the menu goes dark navy (matching the page) with its normal
    pale-yellow text; light mode keeps the chosen light color. */
@@ -162,3 +162,15 @@ html.theme-text.dark :is(.text-primary, .dark\:text-primary, .text-yellow-500, .
     table.ct-stack > tbody > tr > td:first-child { position: absolute; top: 0.5rem; right: 0.5rem; width: auto; padding: 0 !important; }
     table.ct-stack > tbody > tr > td:not([data-label]):not(:first-child) { justify-content: flex-end; }
 }
+
+/* Light accents (2026-11-18): the picked color is used exactly, so white text
+   on solid accent fills flips to the per-shade --on-accent-* color instead.
+   html.accent-light is set by partials/theme-color (and the live preview). */
+html.accent-light .text-white:is(.bg-yellow-500, .bg-amber-500, .bg-secondary) { color: var(--on-accent-500); }
+html.accent-light .text-white:is(.bg-yellow-600, .bg-amber-600, .bg-primary) { color: var(--on-accent-600); }
+html.accent-light .text-white:is(.bg-yellow-700, .bg-amber-700, .bg-accent) { color: var(--on-accent-700); }
+html.accent-light .text-white:is(.bg-yellow-800, .bg-amber-800, .bg-primary-dark) { color: var(--on-accent-800); }
+html.accent-light.dark .text-white:is(.dark\:bg-yellow-500, .dark\:bg-amber-500) { color: var(--on-accent-500); }
+html.accent-light.dark .text-white:is(.dark\:bg-yellow-600, .dark\:bg-amber-600, .dark\:bg-primary) { color: var(--on-accent-600); }
+html.accent-light.dark .text-white:is(.dark\:bg-yellow-700, .dark\:bg-amber-700) { color: var(--on-accent-700); }
+html.accent-light.dark .text-white:is(.dark\:bg-yellow-800, .dark\:bg-amber-800) { color: var(--on-accent-800); }
