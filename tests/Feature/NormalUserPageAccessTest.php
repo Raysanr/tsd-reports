@@ -124,6 +124,17 @@ class NormalUserPageAccessTest extends TestCase
         $this->assertTrue($admin->canAccessModule('leads'));
     }
 
+    /** Saving with many pages off 500'd in production (2026-11-18): the
+     *  Activity Log line ran past a 255-character column. */
+    public function test_saving_with_everything_off_logs_the_full_list(): void
+    {
+        $this->assertSame('text', \Illuminate\Support\Facades\Schema::getColumnType('activity_logs', 'description'));
+
+        $this->saveAs(User::factory()->create(['role' => 'super_admin']), [], [])->assertRedirect();
+        $log = \App\Models\ActivityLog::where('action', 'settings.page_access_saved')->latest('id')->first();
+        $this->assertGreaterThan(255, strlen($log->description));
+    }
+
     public function test_normal_users_cannot_change_page_access(): void
     {
         $this->actingAs($this->normal())->post(route('settings.page-access'), ['modules' => [], 'pages' => []])->assertForbidden();
