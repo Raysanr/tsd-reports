@@ -3216,7 +3216,7 @@ function hideResumeBanner() {
 window.resumeActiveCall = function () {
     const call = getActiveCall();
     if (!call) return;
-    window.openCallingModal(call.name, call.number, call.dialHost, call.leadId);
+    window.openCallingModal(call.name, call.number, call.dialHost, call.leadId, true);
 };
 
 // A stale-tab reload/reopen (e.g. the TSA navigated to Dashboard and back)
@@ -3228,7 +3228,7 @@ window.resumeActiveCall = function () {
     if (call) showResumeBanner(call);
 })();
 
-window.openCallingModal = function (name, number, dialHost, leadId) {
+window.openCallingModal = function (name, number, dialHost, leadId, resume = false) {
     const modal = document.getElementById('callingModal');
     if (!modal) return;
     document.getElementById('callingModalName').textContent = name || 'this customer';
@@ -3264,26 +3264,36 @@ window.openCallingModal = function (name, number, dialHost, leadId) {
 
     hideResumeBanner();
     showModal(modal);
-    watchCallEnd();
+    // A new call starts a fresh watch; reopening a tracked call keeps the
+    // one already running.
+    if (!resume || !callEndWatch) watchCallEnd(resume);
 };
 
-// Hang-up on the phone closes this modal too (explicit request,
-// 2026-11-18: "the dial modal is still not closing"). The phone's
-// MacroDroid call-ended webhook flips the TSA Calling -> Wrap Up on the
-// server; this polls the TSA's own status while the modal is open and,
-// once the call has been seen as Calling and then isn't any more, ends it
-// exactly like End Call does (minus re-sending the hang-up). Only after
-// Calling was seen, so the brief Ready-to-Call moment right after the
-// click (before logCallClick() lands) never closes it early. Admins
-// without a TSA get a 403 and polling simply stops.
+// Hang-up on the phone ends the call here too (explicit request,
+// 2026-11-18): the phone's MacroDroid call-ended webhook flips the TSA
+// Calling -> Wrap Up on the server. While a call is active (modal open OR
+// minimised to the resume banner) this polls the TSA's own status every 2s
+// and ends the call like End Call does once the status has changed since
+// the call started and isn't Calling. Compares the server's own
+// status_changed_at (never the browser clock), so a short call that went
+// Calling -> Wrap Up between two polls still counts. resumed = a page load
+// that found a tracked call: anything but Calling means it already ended.
+// Admins without a TSA get a 403 and polling stops.
 let callEndWatch = null;
 function stopCallEndWatch() {
     if (callEndWatch) clearInterval(callEndWatch.timer);
     callEndWatch = null;
 }
-function watchCallEnd() {
+function endTrackedCall() {
     stopCallEndWatch();
-    const watch = { seenCalling: false, startedAt: Date.now(), timer: null };
+    clearActiveCall();
+    const modal = document.getElementById('callingModal');
+    if (modal && !modal.classList.contains('hidden')) window.closeCallingModal();
+}
+function watchCallEnd(resumed = false) {
+    if (!document.getElementById('callingModal')) return;
+    stopCallEndWatch();
+    const watch = { baseline: undefined, seenCalling: false, timer: null };
     const check = () => {
         fetch('/calls/api/own-status', { headers: { Accept: 'application/json' } })
             .then((res) => {
@@ -3293,24 +3303,29 @@ function watchCallEnd() {
             .then((data) => {
                 if (!data || callEndWatch !== watch) return;
                 if (data.status === 'calling') { watch.seenCalling = true; return; }
-                // Not seen Calling yet: give the click's own status write
-                // ~15s to land before treating anything else as "ended".
-                if (!watch.seenCalling && Date.now() - watch.startedAt < 15000) return;
-                if (!watch.seenCalling && data.status !== 'wrap_up') return;
-                stopCallEndWatch();
-                clearActiveCall();
-                window.closeCallingModal();
+                if (watch.baseline === undefined) {
+                    watch.baseline = data.changed_at;
+                    if (resumed) endTrackedCall();
+                    return;
+                }
+                if (watch.seenCalling || data.changed_at !== watch.baseline) endTrackedCall();
             })
             .catch(() => {});
     };
-    watch.timer = setInterval(() => { if (!document.hidden) check(); }, 3000);
+    watch.timer = setInterval(() => { if (!document.hidden) check(); }, 2000);
     callEndWatch = watch;
+    check();
 }
+// A call still tracked from before this page loaded (navigated away and
+// back) keeps being watched, so its banner clears when the phone hangs up.
+if (getActiveCall()) watchCallEnd(true);
 
 window.closeCallingModal = function () {
     const modal = document.getElementById('callingModal');
     const leadId = modal?.dataset.leadId;
-    stopCallEndWatch();
+    // Keep watching while the call is still tracked (minimised to the
+    // banner) so the banner clears when the phone hangs up.
+    if (!getActiveCall()) stopCallEndWatch();
     hideModal(modal);
     // "Close" (unlike "End Call") never clears the tracked call — if one's
     // still active, the banner is how a TSA gets back into it.
@@ -3597,7 +3612,7 @@ document.addEventListener('click', (e) => {
     const activeCall = getActiveCall();
     if (activeCall && leadId && String(activeCall.leadId) === String(leadId)) {
         e.preventDefault();
-        window.openCallingModal(activeCall.name, activeCall.number, activeCall.dialHost, activeCall.leadId);
+        window.openCallingModal(activeCall.name, activeCall.number, activeCall.dialHost, activeCall.leadId, true);
         return;
     }
 

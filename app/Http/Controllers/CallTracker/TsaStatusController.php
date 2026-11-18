@@ -158,6 +158,9 @@ class TsaStatusController extends Controller
             'label'     => TsaShift::STATUSES[$tsa->status]['label'] ?? $tsa->status,
             'dot_class' => $dotClass,
             'readonly'  => $tsa->status === TsaShift::STATUS_LOCKED,
+            // Lets the Calling modal tell a fresh status change (the phone
+            // ending the call) from the one it opened on (2026-11-18).
+            'changed_at' => $tsa->status_changed_at?->toIso8601String(),
         ]);
     }
 
