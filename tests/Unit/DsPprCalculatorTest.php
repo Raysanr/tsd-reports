@@ -218,4 +218,38 @@ class DsPprCalculatorTest extends TestCase
         $this->assertSame(0.0, $p['projected_answered']);
         $this->assertSame(0.0, $p['expected_sales']);
     }
+
+    /** Projected Net Income (2026-11-18): Net Income + Expected Sales ×
+     *  (Delivered − per-order costs) ÷ Gross Sales. */
+    public function test_projected_net_income_adds_per_order_profit_to_net_income(): void
+    {
+        $p = DsPprCalculator::projections([
+            'excess_leads' => 10, 'pickup_rate' => 0.5, 'conversion_rate' => 0.4, 'aov' => 1000,
+            'net_income' => -2000, 'gross_sales' => 5000, 'added_margin' => 2000, 'ni_pct' => -0.4,
+        ]);
+
+        $this->assertEqualsWithDelta(2000.0, $p['expected_sales'], 0.0001);
+        $this->assertEqualsWithDelta(0.4, $p['added_margin_pct'], 0.0001);
+        $this->assertEqualsWithDelta(-2000 + 2000 * 0.4, $p['projected_net_income'], 0.0001);
+    }
+
+    public function test_projected_net_income_falls_back_to_ni_pct_without_cost_breakdown(): void
+    {
+        $p = DsPprCalculator::projections([
+            'excess_leads' => 10, 'pickup_rate' => 0.5, 'conversion_rate' => 0.4, 'aov' => 1000,
+            'net_income' => 500, 'gross_sales' => 5000, 'ni_pct' => 0.1,
+        ]);
+
+        $this->assertEqualsWithDelta(500 + 2000 * 0.1, $p['projected_net_income'], 0.0001);
+    }
+
+    public function test_sum_carries_added_margin(): void
+    {
+        $s = DsPprCalculator::sum([
+            ['gross_sales' => 1000, 'net_income' => 100, 'added_margin' => 300],
+            ['gross_sales' => 2000, 'net_income' => 200, 'added_margin' => 700],
+        ]);
+
+        $this->assertEqualsWithDelta(1000.0, $s['added_margin'], 0.0001);
+    }
 }

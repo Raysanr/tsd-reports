@@ -633,9 +633,18 @@ class ExpectedIncomeController extends Controller
             );
 
             foreach ($cards as $row) {
+                $dv = $row['derived'];
+                $sl = $dv['selling_lines'] ?? collect();
                 $value = [
-                    'gross_sales' => (float) $row['derived']['gross_sales'],
-                    'net_income'  => (float) $row['derived']['net_income'],
+                    'gross_sales' => (float) $dv['gross_sales'],
+                    'net_income'  => (float) $dv['net_income'],
+                    // DSPPR Projected Net Income (2026-11-18): profit one more
+                    // sale adds — Delivered minus only the per-order costs
+                    // (product, shipping, COD, fulfillment). Ads, Botcake AI,
+                    // tax allocation and operating costs are left out: they're
+                    // already paid whether the excess leads get called or not.
+                    'added_margin' => (float) $dv['delivered'] - (float) $dv['product_cost']
+                        - (float) ($sl['shipping_fee'] ?? 0) - (float) ($sl['cod_fee'] ?? 0) - (float) ($sl['fulfillment_fee'] ?? 0),
                 ];
                 foreach ($row['products'] as $memberProduct) {
                     $result["{$memberProduct->id}:{$dateStr}"] = $value;

@@ -100,7 +100,7 @@
         ['key' => 'projected_answered', 'label' => 'Projected Answered', 'title' => 'Projected customers na sasagot ng call = Excess Leads × Pick-up Rate', 'editable' => false, 'money' => true, 'headerBg' => 'bg-emerald-200 dark:bg-emerald-800'],
         ['key' => 'projected_sold', 'label' => 'Projected Sold', 'title' => 'Projected customers na mabebentahan = Projected Answered × Conversion Rate', 'editable' => false, 'money' => true, 'headerBg' => 'bg-emerald-200 dark:bg-emerald-800'],
         ['key' => 'expected_sales', 'label' => 'Expected Sales', 'title' => 'Expected Sales = Projected Sold × AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-emerald-200 dark:bg-emerald-800'],
-        ['key' => 'projected_net_income', 'label' => 'Projected Net Income', 'title' => 'Projected Net Income = Expected Sales × NI %', 'editable' => false, 'money' => true, 'headerBg' => 'bg-emerald-200 dark:bg-emerald-800'],
+        ['key' => 'projected_net_income', 'label' => 'Projected Net Income', 'title' => 'Net Income if the excess leads were catered = Net Income + Expected Sales × added-profit % (Delivered − Product Cost − Shipping − COD − Fulfillment, ÷ Gross Sales). Ads and fixed costs are not charged again.', 'editable' => false, 'money' => true, 'headerBg' => 'bg-emerald-200 dark:bg-emerald-800'],
     ];
 
     // TIKTOK ORDERS row's own column set (explicit request, 2026-10-05) —
@@ -133,7 +133,7 @@
         ['key' => 'projected_answered', 'label' => 'Projected Answered', 'title' => 'Projected customers na sasagot ng call = Excess Leads × Pick-up Rate', 'editable' => false, 'money' => true, 'headerBg' => 'bg-emerald-200 dark:bg-emerald-800'],
         ['key' => 'projected_sold', 'label' => 'Projected Sold', 'title' => 'Projected customers na mabebentahan = Projected Answered × Conversion Rate', 'editable' => false, 'money' => true, 'headerBg' => 'bg-emerald-200 dark:bg-emerald-800'],
         ['key' => 'expected_sales', 'label' => 'Expected Sales', 'title' => 'Expected Sales = Projected Sold × AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-emerald-200 dark:bg-emerald-800'],
-        ['key' => 'projected_net_income', 'label' => 'Projected Net Income', 'title' => 'Projected Net Income = Expected Sales × NI %', 'editable' => false, 'money' => true, 'headerBg' => 'bg-emerald-200 dark:bg-emerald-800'],
+        ['key' => 'projected_net_income', 'label' => 'Projected Net Income', 'title' => 'Net Income if the excess leads were catered = Net Income + Expected Sales × added-profit % (Delivered − Product Cost − Shipping − COD − Fulfillment, ÷ Gross Sales). Ads and fixed costs are not charged again.', 'editable' => false, 'money' => true, 'headerBg' => 'bg-emerald-200 dark:bg-emerald-800'],
     ];
 @endphp
 
@@ -197,7 +197,7 @@
                     <th class="bg-emerald-200 dark:bg-emerald-800 text-right px-3 py-2 font-bold whitespace-nowrap" title="Projected customers na sasagot ng call = Excess Leads × Pick-up Rate">Projected Answered</th>
                     <th class="bg-emerald-200 dark:bg-emerald-800 text-right px-3 py-2 font-bold whitespace-nowrap" title="Projected customers na mabebentahan = Projected Answered × Conversion Rate">Projected Sold</th>
                     <th class="bg-emerald-200 dark:bg-emerald-800 text-right px-3 py-2 font-bold whitespace-nowrap" title="Expected Sales = Projected Sold × AOV">Expected Sales</th>
-                    <th class="bg-emerald-200 dark:bg-emerald-800 text-right px-3 py-2 font-bold whitespace-nowrap" title="Projected Net Income = Expected Sales × NI %">Projected Net Income</th>
+                    <th class="bg-emerald-200 dark:bg-emerald-800 text-right px-3 py-2 font-bold whitespace-nowrap" title="Net Income if the excess leads were catered = Net Income + Expected Sales × added-profit % (Delivered − Product Cost − Shipping − COD − Fulfillment, ÷ Gross Sales). Ads and fixed costs are not charged again.">Projected Net Income</th>
                 </tr>
             </thead>
             <tbody>
@@ -263,7 +263,7 @@
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="projected_answered">{{ $fmtMoney($d['projected_answered']) }}</td>
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="projected_sold">{{ $fmtMoney($d['projected_sold']) }}</td>
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="expected_sales">{{ $fmtMoney($d['expected_sales']) }}</td>
-                    <td class="px-3 py-2 text-right {{ $d['projected_net_income'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }}" data-out="projected_net_income">{{ $fmtMoney($d['projected_net_income']) }}</td>
+                    <td class="px-3 py-2 text-right {{ $d['projected_net_income'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }}" data-out="projected_net_income" data-margin-pct="{{ $d['added_margin_pct'] }}">{{ $fmtMoney($d['projected_net_income']) }}</td>
                 </tr>
                 @endforeach
                 @unless(\App\Support\DataSet::isPartners()) {{-- no TikTok in Partners --}}
@@ -292,7 +292,7 @@
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="projected_answered">{{ $fmtMoney($td['projected_answered']) }}</td>
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="projected_sold">{{ $fmtMoney($td['projected_sold']) }}</td>
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="expected_sales">{{ $fmtMoney($td['expected_sales']) }}</td>
-                    <td class="px-3 py-2 text-right {{ $td['projected_net_income'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }}" data-out="projected_net_income">{{ $fmtMoney($td['projected_net_income']) }}</td>
+                    <td class="px-3 py-2 text-right {{ $td['projected_net_income'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }}" data-out="projected_net_income" data-margin-pct="{{ $td['added_margin_pct'] }}">{{ $fmtMoney($td['projected_net_income']) }}</td>
                 </tr>
                 @endunless
             </tbody>
@@ -527,6 +527,7 @@
                             @endphp
                             <td class="px-3 py-2 text-right {{ $borderClass }} {{ $cellColor }}"
                                 data-out="{{ $col['key'] }}" data-date="{{ $dateStr }}"
+                                @if($col['key'] === 'projected_net_income') data-margin-pct="{{ $d['added_margin_pct'] ?? 0 }}" @endif
                                 @if(in_array($col['key'], ['pickup_rate', 'conversion_rate', 'upselling_rate'], true))
                                 data-answered="{{ $d['answered'] ?? 0 }}" data-unanswered="{{ $d['unanswered'] ?? 0 }}" data-confirmed-via-call="{{ $d['confirmed_via_call'] ?? 0 }}" data-upsell-confirmation="{{ $d['upsell_confirmation'] ?? 0 }}"
                                 @endif>
@@ -622,7 +623,8 @@
                                 };
                             @endphp
                             <td class="px-3 py-2 text-right {{ $borderClass }} {{ $cellColor }}"
-                                data-out="{{ $col['key'] }}" data-date="{{ $dateStr }}">
+                                data-out="{{ $col['key'] }}" data-date="{{ $dateStr }}"
+                                @if($col['key'] === 'projected_net_income') data-margin-pct="{{ $d['added_margin_pct'] ?? 0 }}" @endif>
                                 {{ ($col['pct'] ?? false) ? $fmtPct($d[$col['key']]) : (($col['int'] ?? false) ? number_format($d[$col['key']]) : $fmtMoney($d[$col['key']])) }}
                             </td>
                             @endif
@@ -923,7 +925,7 @@
     // Projection columns (2026-11-17) — mirrors DsPprCalculator::projections():
     // Projected Answered = Excess × Pick-up, Projected Sold = Answered ×
     // Conversion, Expected Sales = Sold × AOV, Projected Net Income =
-    // Expected Sales × NI %; TOTAL rows = sum of rows.
+    // Net Income + Expected Sales × added-profit %; TOTAL rows = sum of rows.
     // Reads each row's own displayed cells (a TikTok override input's
     // value, or its placeholder when blank).
     const PROJ_KEYS = ['projected_answered', 'projected_sold', 'expected_sales', 'projected_net_income'];
@@ -935,6 +937,13 @@
         const n = Number(String(text).replace(/[,%\s]/g, '')) || 0;
         return String(text).includes('%') ? n / 100 : n;
     }
+    // Added-profit % per sale, set server-side on the Projected Net Income
+    // cell; NI % when missing (DsPprCalculator::addedMarginPct()).
+    function projMarginPct(row, date) {
+        const out = row.querySelector(`[data-out="projected_net_income"]${date ? `[data-date="${date}"]` : ':not([data-date])'}`);
+        const v = out?.dataset.marginPct;
+        return v !== undefined && v !== '' ? Number(v) || 0 : projCellNum(row, 'ni_pct', date);
+    }
     function refreshProjections() {
         document.querySelectorAll('table.dsppr-table').forEach((table) => {
             const totals = {};
@@ -944,7 +953,7 @@
                     const answered = projCellNum(row, 'excess_leads', date) * projCellNum(row, 'pickup_rate', date);
                     const sold = answered * projCellNum(row, 'conversion_rate', date);
                     const expected = sold * projCellNum(row, 'aov', date);
-                    const vals = { projected_answered: answered, projected_sold: sold, expected_sales: expected, projected_net_income: expected * projCellNum(row, 'ni_pct', date) };
+                    const vals = { projected_answered: answered, projected_sold: sold, expected_sales: expected, projected_net_income: projCellNum(row, 'net_income', date) + expected * projMarginPct(row, date) };
                     totals[date] = totals[date] || { projected_answered: 0, projected_sold: 0, expected_sales: 0, projected_net_income: 0 };
                     PROJ_KEYS.forEach((k) => {
                         const out = row.querySelector(`[data-out="${k}"]${date ? `[data-date="${date}"]` : ':not([data-date])'}`);

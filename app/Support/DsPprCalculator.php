@@ -44,6 +44,9 @@ class DsPprCalculator
             'gross_sales'   => $grossSales,
             'net_income'    => $netIncome,
             'ads_spent'     => $adsSpent,
+            // Expected Income's per-order profit (see projections()); absent
+            // on rows with no Expected Income figure (e.g. TikTok Orders).
+            ...(array_key_exists('added_margin', $row) ? ['added_margin' => (float) $row['added_margin']] : []),
             'total_orders'  => $totalOrders,
             'total_leads'   => $totalLeads,
             'catered_leads' => $cateredLeads,
@@ -79,7 +82,12 @@ class DsPprCalculator
      *  - Projected Sold = Projected Answered × Conversion Rate
      *    (customers expected to buy)
      *  - Expected Sales = Projected Sold × AOV
-     *  - Projected Net Income = Expected Sales × NI % (2026-11-17)
+     *  - Projected Net Income (2026-11-18) = Net Income if the excess leads
+     *    were catered = Net Income + Expected Sales × Added-Profit %, where
+     *    Added-Profit % = (Delivered − Product Cost − Shipping − COD −
+     *    Fulfillment) ÷ Gross Sales from Expected Income. Ads and fixed
+     *    costs aren't charged again — they're paid either way. Rows with
+     *    no cost breakdown (TikTok Orders) fall back to NI %.
      *  The sheet shows #DIV/0! when a rate has no data; here it's 0. */
     public const PROJECTION_KEYS = ['projected_answered', 'projected_sold', 'expected_sales', 'projected_net_income'];
 
@@ -89,12 +97,25 @@ class DsPprCalculator
         $sold = $answered * (float) ($d['conversion_rate'] ?? 0);
         $expectedSales = $sold * (float) ($d['aov'] ?? 0);
 
+        $marginPct = self::addedMarginPct($d);
+
         return [
             'projected_answered'   => $answered,
             'projected_sold'       => $sold,
             'expected_sales'       => $expectedSales,
-            'projected_net_income' => $expectedSales * (float) ($d['ni_pct'] ?? 0),
+            'projected_net_income' => (float) ($d['net_income'] ?? 0) + $expectedSales * $marginPct,
+            'added_margin_pct'     => $marginPct,
         ];
+    }
+
+    public static function addedMarginPct(array $d): float
+    {
+        if (! array_key_exists('added_margin', $d)) {
+            return (float) ($d['ni_pct'] ?? 0);
+        }
+        $gross = (float) ($d['gross_sales'] ?? 0);
+
+        return $gross > 0 ? (float) $d['added_margin'] / $gross : 0.0;
     }
 
     /** Sums N raw rows' own 6 inputs, then derives the summed row's own
@@ -140,6 +161,9 @@ class DsPprCalculator
         ];
 
         foreach ($rows as $row) {
+            if (array_key_exists('added_margin', $row)) {
+                $totals['added_margin'] = ($totals['added_margin'] ?? 0) + (float) $row['added_margin'];
+            }
             $totals['gross_sales']   += (float) ($row['gross_sales'] ?? 0);
             $totals['net_income']    += (float) ($row['net_income'] ?? 0);
             $totals['ads_spent']     += (float) ($row['ads_spent'] ?? 0);
