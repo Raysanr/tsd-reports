@@ -46,6 +46,38 @@ class CallEventControllerTest extends TestCase
         ]);
     }
 
+    /** MacroDroid sends the body as text/plain, not form fields (2026-11-18:
+     *  every production request got a 302 and nothing was saved). */
+    public function test_a_plain_text_body_like_macrodroids_is_accepted(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemma->update(['api_token' => 'secret-token', 'status' => TsaShift::STATUS_CALLING]);
+
+        $response = $this->call('POST', '/api/call-events', [], [], [], ['CONTENT_TYPE' => 'text/plain'],
+            'api_token=secret-token&phone_number=09171234567&direction=Outgoing&duration_seconds=42');
+
+        $response->assertOk();
+        $this->assertDatabaseHas('call_events', ['tsa_id' => $gemma->id, 'direction' => 'outgoing', 'duration_seconds' => 42]);
+        $this->assertSame(TsaShift::STATUS_WRAP_UP, $gemma->fresh()->status);
+    }
+
+    /** A magic variable that didn't substitute is dropped, not a rejection. */
+    public function test_an_unsubstituted_duration_is_ignored(): void
+    {
+        TsaShift::where('tsa_key', 'Gemma')->first()->update(['api_token' => 'secret-token']);
+
+        $this->post('/api/call-events', [
+            'api_token' => 'secret-token', 'phone_number' => '09171234567', 'direction' => 'outgoing', 'duration_seconds' => '[call_duration]',
+        ])->assertOk();
+        $this->assertDatabaseHas('call_events', ['phone_number' => '09171234567', 'duration_seconds' => null]);
+    }
+
+    /** A bad request is answered with a 422 explaining why, never a redirect. */
+    public function test_a_bad_request_gets_a_json_error_not_a_redirect(): void
+    {
+        $this->post('/api/call-events', ['phone_number' => '09171234567'])->assertStatus(422)->assertJsonStructure(['errors' => ['api_token', 'direction']]);
+    }
+
     public function test_an_unknown_token_is_rejected(): void
     {
         $response = $this->postJson('/api/call-events', [

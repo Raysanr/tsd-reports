@@ -33,20 +33,49 @@ class CallEventController extends Controller
         // "Outgoing"/"Missed" (capitalized) — normalizing here means the
         // phone-side setup never needs an extra Search & Replace step just
         // to match this system's lowercase convention.
+        // Production showed every phone's call-ended request answered with a
+        // 302 and nothing saved (2026-11-18): a failed validate() redirects
+        // a non-JSON client instead of explaining. MacroDroid can send the
+        // body as text/plain, which Laravel doesn't parse into fields, and
+        // a magic variable that didn't substitute arrives as literal
+        // "[call_duration]". Read the raw body in that case, drop an
+        // unusable duration, and answer/log failures as JSON.
+        if (!$request->has('api_token') && ($raw = $request->getContent()) !== '') {
+            parse_str($raw, $fields);
+            $request->merge($fields);
+        }
         if ($request->filled('direction')) {
-            $request->merge(['direction' => strtolower($request->string('direction'))]);
+            $request->merge(['direction' => strtolower(trim($request->string('direction')))]);
+        }
+        if ($request->filled('duration_seconds') && !ctype_digit(trim((string) $request->input('duration_seconds')))) {
+            $request->merge(['duration_seconds' => null]);
         }
 
-        $data = $request->validate([
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'api_token'        => ['required', 'string'],
             'phone_number'     => ['required', 'string', 'max:32'],
             'direction'        => ['required', 'string', 'in:outgoing,incoming,missed'],
             'duration_seconds' => ['nullable', 'integer', 'min:0'],
             'occurred_at'      => ['nullable', 'date'],
         ]);
+        if ($validator->fails()) {
+            \Illuminate\Support\Facades\Log::warning('call-events rejected', [
+                'errors'       => $validator->errors()->toArray(),
+                'fields'       => array_keys($request->except('api_token')),
+                'has_token'    => $request->filled('api_token'),
+                'content_type' => $request->header('Content-Type'),
+            ]);
+
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+        $data = $validator->validated();
 
         $tsa = TsaShift::where('api_token', $data['api_token'])->first();
-        abort_if(!$tsa, 401, 'Unknown or revoked api_token.');
+        if (!$tsa) {
+            \Illuminate\Support\Facades\Log::warning('call-events rejected: unknown or revoked api_token');
+
+            return response()->json(['success' => false, 'message' => 'Unknown or revoked api_token.'], 401);
+        }
 
         // Two TSAs sharing one phone (explicit request, 2026-09-11: "2 tsa,
         // one cellphone... no shift schedules, whoever is online and clicks
