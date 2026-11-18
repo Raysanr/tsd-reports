@@ -3264,11 +3264,53 @@ window.openCallingModal = function (name, number, dialHost, leadId) {
 
     hideResumeBanner();
     showModal(modal);
+    watchCallEnd();
 };
+
+// Hang-up on the phone closes this modal too (explicit request,
+// 2026-11-18: "the dial modal is still not closing"). The phone's
+// MacroDroid call-ended webhook flips the TSA Calling -> Wrap Up on the
+// server; this polls the TSA's own status while the modal is open and,
+// once the call has been seen as Calling and then isn't any more, ends it
+// exactly like End Call does (minus re-sending the hang-up). Only after
+// Calling was seen, so the brief Ready-to-Call moment right after the
+// click (before logCallClick() lands) never closes it early. Admins
+// without a TSA get a 403 and polling simply stops.
+let callEndWatch = null;
+function stopCallEndWatch() {
+    if (callEndWatch) clearInterval(callEndWatch.timer);
+    callEndWatch = null;
+}
+function watchCallEnd() {
+    stopCallEndWatch();
+    const watch = { seenCalling: false, startedAt: Date.now(), timer: null };
+    const check = () => {
+        fetch('/calls/api/own-status', { headers: { Accept: 'application/json' } })
+            .then((res) => {
+                if (res.status === 403) { stopCallEndWatch(); return null; }
+                return res.ok ? res.json() : null;
+            })
+            .then((data) => {
+                if (!data || callEndWatch !== watch) return;
+                if (data.status === 'calling') { watch.seenCalling = true; return; }
+                // Not seen Calling yet: give the click's own status write
+                // ~15s to land before treating anything else as "ended".
+                if (!watch.seenCalling && Date.now() - watch.startedAt < 15000) return;
+                if (!watch.seenCalling && data.status !== 'wrap_up') return;
+                stopCallEndWatch();
+                clearActiveCall();
+                window.closeCallingModal();
+            })
+            .catch(() => {});
+    };
+    watch.timer = setInterval(() => { if (!document.hidden) check(); }, 3000);
+    callEndWatch = watch;
+}
 
 window.closeCallingModal = function () {
     const modal = document.getElementById('callingModal');
     const leadId = modal?.dataset.leadId;
+    stopCallEndWatch();
     hideModal(modal);
     // "Close" (unlike "End Call") never clears the tracked call — if one's
     // still active, the banner is how a TSA gets back into it.
