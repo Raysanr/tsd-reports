@@ -44,9 +44,24 @@ class CallEventController extends Controller
             parse_str($raw, $fields);
             $request->merge($fields);
         }
-        if ($request->filled('direction')) {
-            $request->merge(['direction' => strtolower(trim($request->string('direction')))]);
+        // Production (2026-11-18, right after the text/plain fix): a real
+        // phone's report was rejected for "direction" — MacroDroid's call
+        // type isn't always exactly Outgoing/Incoming/Missed (wording,
+        // language, or an unsubstituted "[call_type]"). Map by keyword;
+        // anything unrecognisable counts as outgoing (every TSA call is
+        // dialed from Call Tracker) rather than losing the call-ended signal.
+        $rawDirection = trim((string) $request->input('direction', ''));
+        $lower = strtolower($rawDirection);
+        $direction = match (true) {
+            str_contains($lower, 'miss') => 'missed',
+            str_contains($lower, 'out') => 'outgoing',
+            str_contains($lower, 'in') && !str_contains($lower, '[') => 'incoming',
+            default => 'outgoing',
+        };
+        if (!in_array($lower, ['outgoing', 'incoming', 'missed'], true)) {
+            \Illuminate\Support\Facades\Log::info('call-events direction normalised', ['received' => mb_substr($rawDirection, 0, 40), 'used' => $direction]);
         }
+        $request->merge(['direction' => $direction]);
         if ($request->filled('duration_seconds') && !ctype_digit(trim((string) $request->input('duration_seconds')))) {
             $request->merge(['duration_seconds' => null]);
         }

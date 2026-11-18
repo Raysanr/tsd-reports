@@ -75,7 +75,7 @@ class CallEventControllerTest extends TestCase
     /** A bad request is answered with a 422 explaining why, never a redirect. */
     public function test_a_bad_request_gets_a_json_error_not_a_redirect(): void
     {
-        $this->post('/api/call-events', ['phone_number' => '09171234567'])->assertStatus(422)->assertJsonStructure(['errors' => ['api_token', 'direction']]);
+        $this->post('/api/call-events', ['phone_number' => '09171234567'])->assertStatus(422)->assertJsonStructure(['errors' => ['api_token']]);
     }
 
     public function test_an_unknown_token_is_rejected(): void
@@ -105,18 +105,18 @@ class CallEventControllerTest extends TestCase
         $this->assertDatabaseHas('call_events', ['direction' => 'outgoing']);
     }
 
-    public function test_an_invalid_direction_is_rejected(): void
+    /** An unrecognised call type (MacroDroid wording, an unsubstituted
+     *  "[call_type]") no longer loses the call-ended signal (2026-11-18). */
+    public function test_an_unrecognised_direction_is_kept_as_a_call(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
-        $gemma->update(['api_token' => 'secret-token']);
+        $gemma->update(['api_token' => 'secret-token', 'status' => TsaShift::STATUS_CALLING]);
 
-        $response = $this->postJson('/api/call-events', [
-            'api_token'    => 'secret-token',
-            'phone_number' => '09171234567',
-            'direction'    => 'sideways',
-        ]);
-
-        $response->assertUnprocessable();
+        foreach (['[call_type]' => 'outgoing', 'Outgoing call' => 'outgoing', 'Missed call' => 'missed', 'Incoming' => 'incoming', 'sideways' => 'outgoing'] as $sent => $stored) {
+            $this->postJson('/api/call-events', ['api_token' => 'secret-token', 'phone_number' => '0917', 'direction' => $sent])->assertOk();
+            $this->assertSame($stored, CallEvent::latest('id')->first()->direction, $sent);
+        }
+        $this->assertSame(TsaShift::STATUS_WRAP_UP, $gemma->fresh()->status);
     }
 
     public function test_the_call_is_matched_to_that_tsas_own_lead_by_phone_number(): void
