@@ -23,7 +23,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
 {{-- Hub redesign "Bright Bento" (2026-11-17): white top bar, headline, a
      bento grid with TSD Leads Reports as the big accent tile, and the
-     partner systems in their own dark tile. Light and dark mode. --}}
+     partner systems in their own dark tile. Light and dark mode.
+     2026-11-18: split layout — modules left, full month calendar right. --}}
 <style>
     :root {
         /* --primary / --primary-dark / --accent are overridden by the
@@ -130,12 +131,12 @@
 
     /* ---------- Headline ---------- */
     .intro {
-        padding: 56px 8px 36px; display: flex; flex-wrap: wrap; gap: 24px;
+        padding: 40px 8px 28px; display: flex; flex-wrap: wrap; gap: 24px;
         align-items: flex-end; justify-content: space-between;
     }
     .intro h1 {
         flex: 1 1 520px; min-width: 0; margin: 0; font-weight: 800;
-        font-size: clamp(38px, 5.2vw, 68px); line-height: 1; letter-spacing: -0.04em;
+        font-size: clamp(34px, 4.4vw, 58px); line-height: 1; letter-spacing: -0.04em;
     }
     .intro > p { flex: 0 1 400px; margin: 0; font-size: 17px; line-height: 1.55; color: var(--muted); }
     .alert {
@@ -228,6 +229,7 @@
     .hub-intro .greeting { animation: hubFade 400ms ease-out both; }
     .hub-intro .intro h1 .word { animation: hubRise 520ms cubic-bezier(.2,.7,.2,1) both; animation-delay: calc(80ms + var(--i) * 70ms); }
     .hub-intro .intro > p { animation: hubFade 500ms ease-out 420ms both; }
+    .hub-intro .cal-panel { animation: hubRise 620ms cubic-bezier(.2,.7,.2,1) 460ms both; }
     .hub-intro .bento > * { animation: hubRise 560ms cubic-bezier(.2,.7,.2,1) both; animation-delay: calc(380ms + var(--n, 0) * 70ms); }
     .hub-intro .bento > :nth-child(1) { --n: 0; }
     .hub-intro .bento > :nth-child(2) { --n: 1; }
@@ -242,38 +244,64 @@
     .hub-intro .hero .bars rect:nth-child(3) { animation-delay: 760ms; }
     .hub-intro .hero .bars rect:nth-child(4) { animation-delay: 830ms; }
 
-    /* ---------- Calendar (2026-11-17) ----------
-       A tile beside Partner systems shows today, what's coming up and a
-       mini month; clicking it opens the full month in a centered pop-up.
-       PH holidays are fixed; admins add agendas, everyone else views. */
-    .cal-tile {
-        border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer;
-        display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 250px); gap: 24px; align-items: stretch;
+    /* ---------- Calendar (2026-11-17, inline 2026-11-18) ----------
+       Split layout (explicit request, 2026-11-18): modules on the left, the
+       full month on the right so it's visible right after login. Clicking a
+       day opens the pop-up with that day's holidays/agendas (admins add
+       agendas there). PH holidays are fixed. */
+    .hub-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr); gap: 20px; align-items: stretch; }
+    .hub-split .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: auto; gap: 14px; align-content: start; }
+    .hub-split .tile { padding: 22px; border-radius: 24px; gap: 8px; }
+    .hub-split .tile .tag { margin-top: 6px; }
+    .hub-split .tile h3 { font-size: 20px; }
+    .hub-split .tile p { font-size: 13.5px; }
+    .hub-split .tile-icon { width: 46px; height: 46px; border-radius: 14px; }
+    .hub-split .hero { grid-column: span 2; grid-row: auto; flex-direction: row; align-items: center; gap: 28px; padding: 28px 30px; }
+    .hub-split .hero .bars { margin: 0; flex: none; width: 92px; height: 74px; }
+    .hero-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+    .hero-label { font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+    .hub-split .hero h2 { margin: 0; max-width: none; font-size: clamp(28px, 2.6vw, 38px); }
+    .hub-split .hero p { font-size: 14.5px; }
+    .hub-split .hero .arrow { align-self: flex-start; flex: none; }
+    .hub-split .partners { grid-column: span 2; background: var(--surface); color: var(--ink); padding: 20px 22px; gap: 12px; }
+    .hub-split .partners-head h2 { font-size: 19px; }
+    .hub-split .partners-head span { color: var(--muted); }
+    .hub-split .partner-list { margin-top: 0; }
+    .hub-split .partner { background: var(--surface-2); color: var(--ink); padding: 10px 12px; border-radius: 14px; }
+    .hub-split .partner:hover { background: var(--line); }
+    .hub-split .partner-badge { width: 36px; height: 36px; border-radius: 10px; font-size: 11px; }
+    .hub-split .partner-name { font-size: 14px; }
+    .hub-split .partner-sub, .hub-split .partner-out { color: var(--muted); }
+
+    .cal-panel { display: flex; flex-direction: column; min-height: 640px; padding: 22px 22px 16px; border-radius: 28px; background: var(--surface); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 12px 32px -12px rgba(15, 23, 42, 0.12); }
+    .cal-panel-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-bottom: 14px; }
+    .cal-panel-head > svg { width: 28px; height: 28px; flex: none; }
+    .cal-panel-head h2 { margin: 0 auto 0 0; font-size: clamp(24px, 2.2vw, 32px); font-weight: 800; letter-spacing: -0.03em; }
+    .cal-panel-head h2 span { font-weight: 500; color: var(--muted); }
+    .cal-panel .cal-wd { background: var(--surface-2); border-radius: 12px 12px 0 0; }
+    .cal-panel .cal-wd span { text-align: center; color: var(--ink-2); }
+    .cal-panel .cal-grid { flex: 1; grid-template-rows: repeat(6, minmax(84px, 1fr)); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 12px 12px; overflow: hidden; }
+    .cal-panel .cal-cell:nth-last-child(-n+7) { border-bottom: 0; }
+    .cal-panel .cal-cell .num { align-self: flex-start; }
+    .cal-panel .cal-cell.today { background: color-mix(in srgb, var(--cal-red) 6%, transparent); }
+    .cal-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding-top: 12px; font-size: 12px; font-weight: 600; color: var(--muted); }
+    .cal-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: color-mix(in srgb, var(--c) 22%, transparent); box-shadow: inset 0 0 0 1px var(--c); }
+    .cal-legend span:last-child { margin-left: auto; }
+
+    @media (max-width: 1100px) {
+        .hub-split { grid-template-columns: minmax(0, 1fr); }
+        .cal-panel { min-height: 0; }
     }
-    .cal-tile:hover { transform: translateY(-4px); box-shadow: var(--shadow-hover); }
-    .cal-tile:focus-visible, .cal-btn:focus-visible, .cal-cell:focus-visible, .cal-chip:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-    .cal-today { display: flex; flex-direction: column; min-width: 0; }
-    .cal-dow { font-size: 13px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cal-red); }
-    .cal-big { font-size: 64px; font-weight: 800; letter-spacing: -0.05em; line-height: 1; margin-top: 4px; }
-    .cal-month-year { font-size: 14px; font-weight: 600; color: var(--muted); margin-top: 4px; }
-    .cal-next { margin-top: auto; padding-top: 18px; display: flex; flex-direction: column; gap: 8px; }
-    .cal-next-label { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-    .cal-next-item { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 13px; }
-    .cal-next-item .dot { flex: none; width: 8px; height: 8px; border-radius: 999px; background: var(--c); }
-    .cal-next-item .when { flex: none; width: 52px; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
-    .cal-next-item .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--ink-2); }
-    .cal-next-empty { font-size: 13px; color: var(--muted); }
+    @media (max-width: 640px) {
+        .hub-split .bento { grid-template-columns: minmax(0, 1fr); }
+        .hub-split .hero, .hub-split .partners { grid-column: auto; }
+        .hub-split .hero { flex-direction: column; align-items: flex-start; }
+        .cal-panel { padding: 16px 12px 12px; border-radius: 22px; }
+        .cal-panel .cal-grid { grid-template-rows: repeat(6, 56px); }
+        .cal-legend span:last-child { margin-left: 0; }
+    }
 
-    .cal-mini { background: var(--surface-2); border-radius: 20px; padding: 14px 12px 12px; align-self: start; }
-    .cal-mini-title { font-size: 13px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--cal-red); padding: 0 4px 8px; }
-    .cal-mini-grid { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; text-align: center; font-variant-numeric: tabular-nums; }
-    .cal-mini-grid .wd { font-size: 11px; font-weight: 700; color: var(--muted); padding-bottom: 4px; }
-    .cal-mini-grid .d { position: relative; height: 28px; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--ink); }
-    .cal-mini-grid .d.we { color: var(--muted); }
-    .cal-mini-grid .d.hol { color: var(--cal-green); }
-    .cal-mini-grid .d.today span { width: 24px; height: 24px; border-radius: 999px; display: grid; place-items: center; background: var(--cal-red); color: #fff; }
-    .cal-mini-grid .d i { position: absolute; bottom: 0; width: 4px; height: 4px; border-radius: 999px; background: var(--primary); }
-
+    .cal-btn:focus-visible, .cal-cell:focus-visible, .cal-chip:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
     .cal-overlay {
         position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px;
         background: rgba(15, 23, 42, 0.42); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
@@ -309,6 +337,10 @@
     .cal-btn.danger { background: transparent; color: var(--cal-red); padding: 0 10px; }
     .cal-btn.danger:hover { background: color-mix(in srgb, var(--cal-red) 12%, transparent); }
     .cal-btn:disabled { opacity: 0.5; cursor: default; }
+    .cal-btn.danger-solid { background: var(--cal-red); color: #fff; padding: 0 12px; }
+    .cal-btn.danger-solid:hover { background: color-mix(in srgb, var(--cal-red) 85%, #000); }
+    .cal-confirm { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--cal-red) 10%, var(--surface)); animation: hubFade 160ms ease-out; }
+    .cal-confirm-text { font-size: 13px; font-weight: 700; color: var(--ink); }
 
     .cal-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; min-height: 0; border-top: 1px solid var(--line); }
     .cal-month { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
@@ -392,8 +424,6 @@
         .cal-wd span { text-align: center; padding: 8px 0; }
     }
     @media (max-width: 640px) {
-        .cal-tile { grid-template-columns: minmax(0, 1fr); }
-        .cal-mini { display: none; }
         .cal-overlay { padding: 0; }
         .cal-modal { width: 100%; height: 100dvh; border-radius: 0; }
         .cal-head { padding: 16px; }
@@ -404,8 +434,8 @@
     @media (min-width: 1800px) {
         .wrap { max-width: 1600px; }
         .bento { gap: 20px; grid-auto-rows: minmax(290px, auto); }
-        .intro { padding: 72px 8px 44px; }
-        .intro h1 { font-size: 78px; }
+        .intro { padding: 52px 8px 32px; }
+        .intro h1 { font-size: 66px; }
         .intro > p { flex-basis: 460px; font-size: 19px; }
         .greeting { font-size: 17px; }
         .tile { padding: 32px; }
@@ -416,14 +446,11 @@
         .hero p { font-size: 17px; max-width: 520px; }
         .partners-head h2 { font-size: 24px; }
         .partner-name { font-size: 16px; }
-        .cal-big { font-size: 72px; }
-        .cal-next-item { font-size: 14px; }
-        .cal-mini-grid .d { height: 32px; font-size: 13px; }
     }
     @media (min-width: 2300px) {
         .wrap { max-width: 1880px; }
         .bento { gap: 24px; grid-auto-rows: minmax(330px, auto); }
-        .intro h1 { font-size: 92px; }
+        .intro h1 { font-size: 78px; }
         .intro > p { flex-basis: 520px; font-size: 21px; }
         .greeting { font-size: 19px; }
         .tile { padding: 38px; }
@@ -431,8 +458,6 @@
         .tile p { font-size: 17px; }
         .hero h2 { font-size: 72px; }
         .hero p { font-size: 19px; max-width: 600px; }
-        .cal-big { font-size: 84px; }
-        .cal-mini-grid .d { height: 36px; font-size: 14px; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -515,16 +540,17 @@
     <p role="alert" class="alert">{{ session('error') }}</p>
     @endif
 
+    <div class="hub-split">
     <div class="bento">
         @if(auth()->user()->canAccessModule('leads'))
         <a class="tile hero" href="{{ route('dashboard') }}">
-            <div class="tile-top">
-                <span>Reporting</span>
-                <span class="arrow">{!! $arrowSvg !!}</span>
-            </div>
             <svg class="bars" viewBox="0 0 120 96" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><rect x="6" y="56" width="20" height="34" rx="5"/><rect x="36" y="36" width="20" height="54" rx="5"/><rect x="66" y="46" width="20" height="44" rx="5"/><rect x="96" y="10" width="20" height="80" rx="5"/></svg>
-            <h2>TSD Leads Reports</h2>
-            <p>Pancake POS sales reporting — leads, TSA performance, upsell tracking, and analytics.</p>
+            <div class="hero-text">
+                <span class="hero-label">Reporting</span>
+                <h2>TSD Leads Reports</h2>
+                <p>Pancake POS sales reporting — leads, TSA performance, upsell tracking, and analytics.</p>
+            </div>
+            <span class="arrow">{!! $arrowSvg !!}</span>
         </a>
         @endif
 
@@ -611,20 +637,27 @@
             </div>
         </section>
 
-        {{-- Calendar (explicit request, 2026-11-17) — drawn by the script
-             below from $calendar; opens the full month in a pop-up. --}}
-        <button type="button" class="tile wide cal-tile" id="calTile" aria-haspopup="dialog" aria-controls="calOverlay" aria-label="Open calendar">
-            <div class="cal-today">
-                <span class="cal-dow" id="calTileDow"></span>
-                <span class="cal-big" id="calTileDay"></span>
-                <span class="cal-month-year" id="calTileMonth"></span>
-                <div class="cal-next" id="calTileNext"></div>
+    </div>
+
+        {{-- Calendar (explicit request 2026-11-17; inline full month
+             2026-11-18) — drawn by the script below from $calendar. --}}
+        <section class="cal-panel" id="calPanel" aria-labelledby="calPanelTitle">
+            <div class="cal-panel-head">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path stroke-linecap="round" d="M3 10h18M8 3v4M16 3v4"/></svg>
+                <h2 id="calPanelTitle"></h2>
+                <button type="button" class="cal-btn" id="calPanelToday">Today</button>
+                <button type="button" class="cal-btn icon" id="calPanelPrev" aria-label="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path stroke-linecap="round" stroke-linejoin="round" d="M15 18l-6-6 6-6"/></svg></button>
+                <button type="button" class="cal-btn icon" id="calPanelNext" aria-label="Next month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path stroke-linecap="round" stroke-linejoin="round" d="M9 6l6 6-6 6"/></svg></button>
             </div>
-            <div class="cal-mini" aria-hidden="true">
-                <div class="cal-mini-title" id="calMiniTitle"></div>
-                <div class="cal-mini-grid" id="calMiniGrid"></div>
+            <div class="cal-wd" aria-hidden="true"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+            <div class="cal-grid" id="calPanelGrid" role="grid" aria-labelledby="calPanelTitle"></div>
+            <div class="cal-legend">
+                <span><i class="c-holiday"></i>Holiday</span>
+                <span><i class="c-blue"></i>Agenda</span>
+                <span>Click a day to see details{{ ($calendar['canEdit'] ?? false) ? ' or add an agenda' : '' }}</span>
             </div>
-        </button>
+        </section>
+    </div>
     </div>
 </main>
 </div>
@@ -710,56 +743,35 @@
     }
     function holidaysOn(k) { return data.holidays[k] || []; }
 
-    /* ---------- Tile ---------- */
-    function renderTile() {
-        document.getElementById('calTileDow').textContent = DAYS[today.getDay()];
-        document.getElementById('calTileDay').textContent = today.getDate();
-        document.getElementById('calTileMonth').textContent = MONTHS[today.getMonth()] + ' ' + today.getFullYear();
-
-        var upcoming = [];
-        Object.keys(data.holidays).forEach(function (k) {
-            if (k >= data.today) holidaysOn(k).forEach(function (h) { upcoming.push({ date: k, title: h.name, color: 'holiday', time: '' }); });
-        });
-        data.agendas.forEach(function (a) { if (a.date >= data.today) upcoming.push(a); });
-        upcoming.sort(function (a, b) { return a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''); });
-
-        var next = document.getElementById('calTileNext');
-        next.replaceChildren(el('span', 'cal-next-label', 'Coming up'));
-        if (!upcoming.length) next.appendChild(el('span', 'cal-next-empty', 'Nothing scheduled'));
-        upcoming.slice(0, 3).forEach(function (u) {
-            var d = parse(u.date);
-            var row = el('div', 'cal-next-item c-' + u.color);
-            row.appendChild(el('span', 'dot'));
-            row.appendChild(el('span', 'when', u.date === data.today ? 'Today' : MONTHS[d.getMonth()].slice(0, 3) + ' ' + d.getDate()));
-            row.appendChild(el('span', 'what', u.title));
-            next.appendChild(row);
-        });
-
-        document.getElementById('calMiniTitle').textContent = MONTHS[today.getMonth()];
-        var grid = document.getElementById('calMiniGrid');
-        grid.replaceChildren();
-        'SMTWTFS'.split('').forEach(function (c) { grid.appendChild(el('span', 'wd', c)); });
-        var first = new Date(today.getFullYear(), today.getMonth(), 1);
-        for (var i = 0; i < first.getDay(); i++) grid.appendChild(el('span', 'd'));
-        var days = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-        for (var day = 1; day <= days; day++) {
-            var d = new Date(today.getFullYear(), today.getMonth(), day), k = key(d);
-            var cell = el('span', 'd');
-            if (d.getDay() === 0 || d.getDay() === 6) cell.classList.add('we');
-            if (holidaysOn(k).length) cell.classList.add('hol');
-            if (k === data.today) cell.classList.add('today');
-            cell.appendChild(el('span', null, day));
-            if (agendasOn(k).length) cell.appendChild(el('i'));
-            grid.appendChild(cell);
-        }
+    /* ---------- Inline month (the Hub's own calendar panel) ---------- */
+    var panelView = new Date(today.getFullYear(), today.getMonth(), 1);
+    function renderPanel(direction) {
+        var title = document.getElementById('calPanelTitle');
+        title.replaceChildren(document.createTextNode(MONTHS[panelView.getMonth()] + ' '), el('span', null, panelView.getFullYear()));
+        var grid = document.getElementById('calPanelGrid');
+        fillGrid(grid, panelView, null);
+        // One tab stop for the whole grid (today, else the 1st); arrows move.
+        var stop = grid.querySelector('.cal-cell.today:not(.out)') || grid.querySelector('.cal-cell:not(.out)');
+        if (stop) stop.tabIndex = 0;
+        animate(grid, direction);
     }
 
     /* ---------- Month grid ---------- */
+    function animate(grid, direction) {
+        if (direction && !reduceMotion) {
+            grid.classList.remove('slide-next', 'slide-prev');
+            void grid.offsetWidth;
+            grid.classList.add(direction > 0 ? 'slide-next' : 'slide-prev');
+        }
+    }
     function renderMonth(direction) {
         var title = document.getElementById('calTitle');
         title.replaceChildren(document.createTextNode(MONTHS[view.getMonth()] + ' '), el('span', null, view.getFullYear()));
-
         var grid = document.getElementById('calGrid');
+        fillGrid(grid, view, selected);
+        animate(grid, direction);
+    }
+    function fillGrid(grid, view, selected) {
         grid.replaceChildren();
         var start = new Date(view.getFullYear(), view.getMonth(), 1 - view.getDay());
         for (var i = 0; i < 42; i++) {
@@ -796,11 +808,6 @@
                 cell.appendChild(dots);
             }
             grid.appendChild(cell);
-        }
-        if (direction && !reduceMotion) {
-            grid.classList.remove('slide-next', 'slide-prev');
-            void grid.offsetWidth;
-            grid.classList.add(direction > 0 ? 'slide-next' : 'slide-prev');
         }
     }
 
@@ -844,7 +851,7 @@
                 edit.addEventListener('click', function () { editingId = a.id; renderDay(); focusFirstField(); });
                 var del = el('button', 'cal-btn danger', 'Delete');
                 del.type = 'button';
-                del.addEventListener('click', function () { remove(a, del); });
+                del.addEventListener('click', function () { askDelete(a, item, actions); });
                 actions.append(edit, del);
                 item.appendChild(actions);
             }
@@ -912,13 +919,30 @@
         return f;
     }
 
-    function remove(agenda, button) {
-        if (!confirm('Delete "' + agenda.title + '"?')) return;
-        button.disabled = true;
-        request('DELETE', data.baseUrl + '/' + agenda.id).then(function () {
-            data.agendas = data.agendas.filter(function (a) { return a.id !== agenda.id; });
-            refresh();
-        }).catch(function (msg) { button.disabled = false; alert(msg); });
+    // In-card confirmation instead of the browser's confirm(), which always
+    // shows the site address ("localhost:8000 says") and can't be styled.
+    function askDelete(agenda, item, actions) {
+        var box = el('div', 'cal-confirm');
+        box.setAttribute('role', 'alertdialog');
+        box.setAttribute('aria-label', 'Delete agenda');
+        box.appendChild(el('span', 'cal-confirm-text', 'Delete this agenda?'));
+        var error = el('p', 'cal-error'); error.hidden = true;
+        var row = el('div', 'cal-item-actions');
+        var cancel = el('button', 'cal-btn', 'Cancel'); cancel.type = 'button';
+        var del = el('button', 'cal-btn danger-solid', 'Delete'); del.type = 'button';
+        row.append(cancel, del);
+        box.append(row, error);
+        actions.replaceWith(box);
+        cancel.focus();
+        cancel.addEventListener('click', function () { box.replaceWith(actions); actions.querySelector('.danger').focus(); });
+        box.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel.click(); } });
+        del.addEventListener('click', function () {
+            del.disabled = cancel.disabled = true;
+            request('DELETE', data.baseUrl + '/' + agenda.id).then(function () {
+                data.agendas = data.agendas.filter(function (a) { return a.id !== agenda.id; });
+                refresh();
+            }).catch(function (msg) { error.textContent = msg; error.hidden = false; del.disabled = cancel.disabled = false; });
+        });
     }
 
     function request(method, url, body) {
@@ -935,26 +959,28 @@
         }, function () { throw 'Could not reach the server. Check your connection.'; });
     }
 
-    function refresh() { renderMonth(); renderDay(); renderTile(); }
+    function refresh() { renderMonth(); renderDay(); renderPanel(); }
     function focusFirstField() { var f = document.querySelector('#calDay .cal-form input'); if (f) f.focus(); }
 
     /* ---------- Open / close ---------- */
     var overlay = document.getElementById('calOverlay');
     var modal = document.getElementById('calModal');
-    var tile = document.getElementById('calTile');
+    var opener = null;
     var closeTimer = null;
 
-    function open() {
+    function open(k, from) {
         clearTimeout(closeTimer);
-        view = new Date(today.getFullYear(), today.getMonth(), 1);
-        selected = data.today;
+        opener = from;
+        var d = parse(k);
+        view = new Date(d.getFullYear(), d.getMonth(), 1);
+        selected = k;
         editingId = null;
         renderMonth();
         renderDay();
         overlay.hidden = false;
         document.documentElement.style.overflow = 'hidden';
-        // Grow out of the tile: the pop-up scales from the tile's center.
-        var t = tile.getBoundingClientRect(), m = modal.getBoundingClientRect();
+        // Grow out of the clicked day: the pop-up scales from its center.
+        var t = from.getBoundingClientRect(), m = modal.getBoundingClientRect();
         modal.style.setProperty('--ox', (t.left + t.width / 2 - m.left) + 'px');
         modal.style.setProperty('--oy', (t.top + t.height / 2 - m.top) + 'px');
         requestAnimationFrame(function () {
@@ -967,7 +993,7 @@
         overlay.classList.remove('is-open');
         document.documentElement.style.overflow = '';
         closeTimer = setTimeout(function () { overlay.hidden = true; }, reduceMotion ? 0 : 340);
-        tile.focus({ preventScroll: true });
+        if (opener) opener.focus({ preventScroll: true });
     }
     function go(delta) {
         view = new Date(view.getFullYear(), view.getMonth() + delta, 1);
@@ -993,7 +1019,33 @@
         if (focus) { var c = document.querySelector('#calGrid .cal-cell[data-date="' + k + '"]'); if (c) c.focus(); }
     }
 
-    tile.addEventListener('click', open);
+    var panelGrid = document.getElementById('calPanelGrid');
+    panelGrid.addEventListener('click', function (e) {
+        var cell = e.target.closest('.cal-cell');
+        if (cell) open(cell.dataset.date, cell);
+    });
+    panelGrid.addEventListener('keydown', function (e) {
+        var moves = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
+        if (!(e.key in moves)) return;
+        var cells = Array.prototype.slice.call(panelGrid.querySelectorAll('.cal-cell'));
+        var next = cells[cells.indexOf(document.activeElement) + moves[e.key]];
+        if (!next) return;
+        e.preventDefault();
+        cells.forEach(function (c) { c.tabIndex = c === next ? 0 : -1; });
+        next.focus();
+    });
+    function panelGo(delta) {
+        panelView = new Date(panelView.getFullYear(), panelView.getMonth() + delta, 1);
+        renderPanel(delta);
+    }
+    document.getElementById('calPanelPrev').addEventListener('click', function () { panelGo(-1); });
+    document.getElementById('calPanelNext').addEventListener('click', function () { panelGo(1); });
+    document.getElementById('calPanelToday').addEventListener('click', function () {
+        var delta = panelView < new Date(today.getFullYear(), today.getMonth(), 1) ? 1 : -1;
+        if (panelView.getFullYear() === today.getFullYear() && panelView.getMonth() === today.getMonth()) return;
+        panelView = new Date(today.getFullYear(), today.getMonth(), 1);
+        renderPanel(delta);
+    });
     document.getElementById('calClose').addEventListener('click', close);
     document.getElementById('calPrev').addEventListener('click', function () { go(-1); });
     document.getElementById('calNext').addEventListener('click', function () { go(1); });
@@ -1019,7 +1071,7 @@
         else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
     });
 
-    renderTile();
+    renderPanel();
 })();
 </script>
 </body>

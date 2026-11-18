@@ -38,7 +38,7 @@ class HubCalendarTest extends TestCase
 
         $normal = User::factory()->create(['role' => 'normal']);
         $page = $this->actingAs($normal)->get(route('hub'))->assertOk();
-        $page->assertSee('id="calTile"', false)->assertSee('Team huddle')->assertSee('Bonifacio Day');
+        $page->assertSee('id="calPanel"', false)->assertSee('Team huddle')->assertSee('Bonifacio Day');
         $this->assertFalse($page->viewData('calendar')['canEdit']);
 
         $this->postJson(route('hub.agendas.store'), ['date' => '2026-11-21', 'title' => 'Nope'])->assertForbidden();
