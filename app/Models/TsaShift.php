@@ -35,6 +35,8 @@ class TsaShift extends Model
         'first_day',
         // Display-only "eye" toggle — see add_is_hidden_to_tsa_shifts_table.
         'is_hidden',
+        // Left out of Overall Sales Summary's # of TSA — see add_exclude_from_tsa_count.
+        'exclude_from_tsa_count',
         // Auto-text from this TSA's own phone — see LeadAutoText.
         'sms_enabled', 'smsgate_username', 'smsgate_password',
     ];
@@ -164,6 +166,7 @@ class TsaShift extends Model
         'first_day' => 'date',
         'active' => 'boolean',
         'is_hidden' => 'boolean',
+        'exclude_from_tsa_count' => 'boolean',
         'previous_last_day' => 'date',
         'status_changed_at' => 'datetime',
         'tiktok_upsell' => 'boolean',

@@ -221,6 +221,36 @@ class OverallPerformanceTest extends TestCase
         $this->assertSame(['working' => 3, 'total' => 6], $summary['total']['tsa'][$d]);
     }
 
+    /** "Don't count in # of TSA" leaves someone out of both numbers, sold or not. */
+    public function test_excluded_tsa_is_left_out_of_the_count(): void
+    {
+        $d = '2026-11-02';
+        $blank = ['gross_sales' => 0, 'net_income' => 0, 'total_orders' => 0, 'call_counts' => ['answered' => 0, 'unanswered' => 0, 'confirmed_via_call' => 0, 'upsell_confirmation' => 0]];
+        $tsa = fn (float $gross, bool $counted = true) => ['name' => 'x', 'team' => 'SH Naturals', 'on_roster' => true, 'counted' => $counted, 'gross_sales' => $gross, 'net_income' => 0, 'catered_leads' => 0];
+        $tsd = ['days' => [$d => $blank], 'teams' => [], 'tsas' => [$d => [$tsa(500), $tsa(0), $tsa(200, false), $tsa(0, false)]]];
+
+        $summary = \App\Support\OverallSalesSummary::build($tsd, []);
+
+        $this->assertSame(['working' => 1, 'total' => 2], $summary['rows'][0]['tsa'][$d]);
+    }
+
+    /** The checkbox in TSA Management saves the flag. */
+    public function test_tsa_management_saves_exclude_from_count(): void
+    {
+        $admin = \App\Models\User::factory()->create(['role' => 'super_admin']);
+        $shift = \App\Models\TsaShift::where('tsa_key', 'Julie')->firstOrFail();
+
+        $this->actingAs($admin)->put(route('tsa-management.update', $shift), [
+            'display_name' => $shift->display_name, 'team' => $shift->team, 'exclude_from_tsa_count' => '1',
+        ]);
+        $this->assertTrue($shift->fresh()->exclude_from_tsa_count);
+
+        $this->actingAs($admin)->put(route('tsa-management.update', $shift), [
+            'display_name' => $shift->display_name, 'team' => $shift->team,
+        ]);
+        $this->assertFalse($shift->fresh()->exclude_from_tsa_count);
+    }
+
     /** A removed TSA is on the roster up to her last working day, a hidden one never. */
     public function test_the_roster_drops_a_removed_tsa_after_her_last_day(): void
     {

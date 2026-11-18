@@ -194,6 +194,7 @@ class TsaManagementController extends Controller
             'sort_order'       => $nextSort,
             'first_day'        => today()->toDateString(), // reports show her from today on
             'tiktok_upsell'    => $data['tiktok_upsell'] ?? false,
+            'exclude_from_tsa_count' => $data['exclude_from_tsa_count'] ?? false,
         ]);
 
         // Teams::nameForOrderTeam(), not the raw $data['team'] string
@@ -246,8 +247,12 @@ class TsaManagementController extends Controller
             'rest_day_of_week' => $data['rest_day_of_week'] ?? null,
             'tiktok_upsell'    => $data['tiktok_upsell'] ?? false,
         ], $shiftMonth);
-        // Not month-specific: the TSA's Drive folder is one folder.
-        $tsaShift->forceFill(['drive_folder_name' => $this->driveFolderName($data)])->save();
+        // Not month-specific: the TSA's Drive folder is one folder, and
+        // "don't count in # of TSA" is about who she is, not one month.
+        $tsaShift->forceFill([
+            'drive_folder_name'      => $this->driveFolderName($data),
+            'exclude_from_tsa_count' => $data['exclude_from_tsa_count'] ?? false,
+        ])->save();
 
         $message = "Updated \"{$data['display_name']}\"" . (TsaMonths::existing() !== [] ? ' for ' . Carbon::createFromFormat('Y-m', $shiftMonth)->format('F Y') : '') . '.';
         ActivityLogger::log('tsa.updated', $tsaShift, $message);
@@ -569,6 +574,7 @@ class TsaManagementController extends Controller
             'extra_keywords'   => 'nullable|string|max:255',
             'rest_day_of_week' => 'nullable|string|in:sunday,monday,tuesday,wednesday,thursday,friday,saturday',
             'tiktok_upsell'    => 'nullable|boolean',
+            'exclude_from_tsa_count' => 'nullable|boolean',
             'drive_folder_name' => 'nullable|string|max:100',
         ]);
     }

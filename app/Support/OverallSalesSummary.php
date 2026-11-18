@@ -72,12 +72,13 @@ class OverallSalesSummary
     /** # of TSA per day (automated 2026-11-17): working = TSAs with gross
      *  sales that day, total = the department's roster that day (plus anyone
      *  who sold while off it, so working never exceeds total). $team null =
-     *  every TSA in $tsasByDate (SH E-COM's two teams); else that partner's. */
+     *  every TSA in $tsasByDate (SH E-COM's two teams); else that partner's.
+     *  TSAs marked "Don't count in # of TSA" (2026-11-18) are left out of both. */
     private static function tsaCounts(array $dates, array $tsasByDate, ?string $team): array
     {
         $counts = [];
         foreach ($dates as $date) {
-            $tsas = array_filter($tsasByDate[$date] ?? [], fn (array $t) => $team === null || $t['team'] === $team);
+            $tsas = array_filter($tsasByDate[$date] ?? [], fn (array $t) => ($t['counted'] ?? true) && ($team === null || $t['team'] === $team));
             $selling = fn (array $t) => (float) $t['gross_sales'] > 0;
             $counts[$date] = [
                 'working' => count(array_filter($tsas, $selling)),

@@ -322,6 +322,7 @@ class TsaSalesReportController extends Controller
                     'name'          => $tsa->display_name,
                     'team'          => $g['orderTeam'],
                     'on_roster'     => self::onRosterOn($tsa, $dateStr),
+                    'counted'       => !$tsa->exclude_from_tsa_count, // # of TSA (2026-11-18)
                     'gross_sales'   => (float) ($row['gross_sales'] ?? 0),
                     'net_income'    => (float) ($row['net_income'] ?? 0),
                     'catered_leads' => (float) ($row['catered_leads'] ?? 0),

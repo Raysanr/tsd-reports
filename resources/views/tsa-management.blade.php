@@ -144,7 +144,7 @@
                                    class="w-full text-xs sm:text-sm font-mono font-semibold text-slate-700 dark:text-slate-200 border-0 border-b border-transparent
                                           hover:border-slate-200 dark:hover:border-slate-700 focus:border-yellow-400 focus:outline-none bg-transparent py-0.5 transition-colors truncate"
                                    placeholder="Full name">
-                            <p class="text-[9px] sm:text-[10px] text-slate-400 font-mono truncate">{{ $shift->tsa_key }}@if($shift->first_day)<span title="Reports show her from this day on"> · from {{ $shift->first_day->format('M j') }}</span>@endif<span class="hiddenBadge ml-1 px-1 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 {{ $shift->is_hidden ? '' : 'hidden' }}">Hidden</span></p>
+                            <p class="text-[9px] sm:text-[10px] text-slate-400 font-mono truncate">{{ $shift->tsa_key }}@if($shift->first_day)<span title="Reports show her from this day on"> · from {{ $shift->first_day->format('M j') }}</span>@endif @if($shift->exclude_from_tsa_count)<span class="ml-1 px-1 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300" title="Left out of # of TSA on Overall Sales Summary">Not in TSA count</span>@endif<span class="hiddenBadge ml-1 px-1 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 {{ $shift->is_hidden ? '' : 'hidden' }}">Hidden</span></p>
                         </div>
                     </div>
 
@@ -175,7 +175,8 @@
                             data-pos-user-id="{{ $shift->pos_user_id }}"
                             data-rest-day="{{ $shift->rest_day_of_week }}"
                             data-drive-folder="{{ $shift->drive_folder_name }}"
-                            data-tiktok-upsell="{{ $shift->tiktok_upsell ? '1' : '0' }}">
+                            data-tiktok-upsell="{{ $shift->tiktok_upsell ? '1' : '0' }}"
+                            data-exclude-count="{{ $shift->exclude_from_tsa_count ? '1' : '0' }}">
                             <svg class="w-3 h-3 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                             </svg>
@@ -425,6 +426,17 @@
                 </label>
             </div>
 
+            <div>
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" name="exclude_from_tsa_count" id="tsaExcludeCountCheckbox" value="1"
+                        class="rounded border-slate-300 dark:border-slate-600 text-yellow-700 focus:ring-yellow-500">
+                    <label for="tsaExcludeCountCheckbox" class="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                        Don't count in # of TSA
+                    </label>
+                </div>
+                <p class="mt-1 ml-6 text-[11px] text-slate-400">For someone on the roster who isn't a selling TSA. Left out of # of TSA on Overall Sales Summary; her sales still count everywhere.</p>
+            </div>
+
             <div class="flex items-center justify-end gap-2 pt-2">
                 <button type="button" id="cancelTsaModal" class="px-3 py-2 text-xs font-mono text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">Cancel</button>
                 <button type="submit" id="tsaSubmitBtn" class="px-4 py-2 text-xs font-semibold text-white bg-yellow-700 hover:bg-yellow-800 rounded-lg transition-colors cursor-pointer">Add TSA</button>
@@ -539,6 +551,7 @@ document.querySelectorAll('.toggleHiddenTsaBtn').forEach((btn) => {
     const resultsBox    = document.getElementById('tsaNameResults');
     const linkedHint    = document.getElementById('tsaLinkedHint');
     const tiktokUpsellCheckbox = document.getElementById('tsaTiktokUpsellCheckbox');
+    const excludeCountCheckbox = document.getElementById('tsaExcludeCountCheckbox');
     const storeUrl      = form.action;
 
     let selectedTags  = [];
@@ -611,6 +624,7 @@ document.querySelectorAll('.toggleHiddenTsaBtn').forEach((btn) => {
         driveFolderInput.value = '';
         teamSelect.selectedIndex = 0;
         tiktokUpsellCheckbox.checked = false;
+        excludeCountCheckbox.checked = false;
         currentTsaKey = '';
         linkedHint.classList.add('hidden');
         modalTitle.textContent = 'Add a new TSA';
@@ -637,6 +651,7 @@ document.querySelectorAll('.toggleHiddenTsaBtn').forEach((btn) => {
             restDaySelect.value = btn.dataset.restDay || '';
             driveFolderInput.value = btn.dataset.driveFolder || '';
             tiktokUpsellCheckbox.checked = btn.dataset.tiktokUpsell === '1';
+            excludeCountCheckbox.checked = btn.dataset.excludeCount === '1';
             posUserIdInput.value = btn.dataset.posUserId || '';
             if (btn.dataset.posUserId) linkedHint.classList.remove('hidden');
             modalTitle.textContent = 'Edit TSA';
