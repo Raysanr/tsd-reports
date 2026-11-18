@@ -28,6 +28,7 @@
     </style>
     @stack('head')
     @include('partials.page-nav')
+    @include('partials.sidebar-rail-head')
 </head>
 <body class="flex h-screen overflow-hidden bg-canvas dark:bg-slate-950 text-ink dark:text-slate-100">
 
@@ -59,12 +60,13 @@
 
 <div id="sidebarBackdrop" class="hidden fixed inset-0 bg-black/50 z-40 md:hidden"></div>
 
-<aside id="sidebar"
+<aside id="sidebar" data-rail
        class="fixed md:relative inset-y-0 left-0 z-50 w-64 shrink-0 bg-sidebar flex flex-col h-full shadow-xl
               -translate-x-full md:translate-x-0 transition-transform duration-200 ease-out">
+    @include('partials.sidebar-rail-toggle')
     <div class="pointer-events-none absolute inset-x-0 top-0 h-56" style="background: radial-gradient(120% 100% at 18% 0%, rgba(234,179,8,0.16), transparent 70%);"></div>
 
-    <div class="relative px-6 py-5 border-b border-white/10">
+    <div class="rail-header relative px-6 py-5 border-b border-white/10">
         <div class="flex items-center justify-between gap-3">
             <div class="flex items-center gap-3 min-w-0">
                 <div class="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center shrink-0">
@@ -72,7 +74,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/>
                     </svg>
                 </div>
-                <div class="min-w-0">
+                <div class="rail-brand-text min-w-0">
                     <div class="text-white font-bold text-sm leading-tight tracking-tight truncate">TSD Archiving System</div>
                     <div class="text-yellow-300 text-[10px] tracking-[0.15em] uppercase truncate">TSD Telesales</div>
                 </div>
@@ -107,11 +109,11 @@
     </nav>
 
     <div class="px-4 py-4 border-t border-white/10">
-        <div class="flex items-center gap-3 min-w-0">
+        <div class="rail-footer-row flex items-center gap-3 min-w-0">
             <div class="w-8 h-8 rounded-full bg-yellow-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
                 {{ strtoupper(substr(auth()->user()->name ?? 'TSD', 0, 1)) }}
             </div>
-            <div class="min-w-0 flex-1">
+            <div class="rail-user-info min-w-0 flex-1">
                 <div class="text-white text-xs font-semibold truncate">{{ auth()->user()->name }}</div>
                 <div class="text-yellow-300 text-[10px] truncate">{{ \App\Models\User::ROLE_LABELS[auth()->user()->role] ?? 'User' }}</div>
             </div>

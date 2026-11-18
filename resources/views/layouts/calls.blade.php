@@ -200,6 +200,7 @@
     }
     </style>
     @include('partials.page-nav')
+    @include('partials.sidebar-rail-head')
 </head>
 <body class="flex h-screen overflow-hidden bg-canvas dark:bg-slate-950" data-notifications-url="{{ auth()->check() ? route('calls.notifications.counts') : '' }}">
 
@@ -215,12 +216,13 @@
 {{-- Below md: a fixed, off-canvas drawer (toggled by the hamburger button in
      the header) sliding in over the content. At md+: back to a normal
      static column, always visible, exactly like before. --}}
-<aside id="sidebar"
+<aside id="sidebar" data-rail
        class="fixed md:relative inset-y-0 left-0 z-50 w-64 shrink-0 bg-sidebar flex flex-col h-full shadow-xl
               -translate-x-full md:translate-x-0 transition-transform duration-200 ease-out">
+    @include('partials.sidebar-rail-toggle')
     <div class="pointer-events-none absolute inset-x-0 top-0 h-56" style="background: radial-gradient(120% 100% at 18% 0%, color-mix(in srgb, var(--color-yellow-500) 16%, transparent), transparent 70%);"></div>
 
-    <div class="relative px-6 py-5 border-b border-white/10">
+    <div class="rail-header relative px-6 py-5 border-b border-white/10">
         <div class="flex items-center justify-between gap-3">
             <div class="flex items-center gap-3 min-w-0">
                 {{-- Solid gold fill, black icon (revised 2026-08-15 — matches the
@@ -231,7 +233,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
                     </svg>
                 </div>
-                <div class="min-w-0">
+                <div class="rail-brand-text min-w-0">
                     <div class="text-white font-bold text-sm leading-tight font-mono tracking-tight truncate">TSD Call Tracker</div>
                     <div class="text-yellow-300 text-[10px] font-mono tracking-[0.15em] uppercase truncate">TSD Telesales</div>
                 </div>
@@ -493,11 +495,11 @@
     </nav>
 
     <div class="px-4 py-4 border-t border-white/10">
-        <div class="flex items-center gap-3 min-w-0">
+        <div class="rail-footer-row flex items-center gap-3 min-w-0">
             <div class="w-8 h-8 rounded-full bg-yellow-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
                 {{ strtoupper(substr(auth()->user()->name ?? 'CT', 0, 1)) }}
             </div>
-            <div class="min-w-0 flex-1">
+            <div class="rail-user-info min-w-0 flex-1">
                 <div class="text-white text-xs font-semibold truncate">{{ auth()->user()->name }}</div>
                 <div class="text-yellow-400 text-[10px] truncate">{{ auth()->user()->isAtLeastAdmin() ? 'Admin' : (auth()->user()->tsa?->display_name ?? 'TSA') }}</div>
             </div>
