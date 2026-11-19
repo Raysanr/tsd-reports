@@ -92,7 +92,7 @@ class LiveTsaBoard
      *
      * @return array<int, array{sales: float, net: float}> keyed by tsa_shift id
      */
-    public static function salesAndNetIncome(Collection $shifts, \Illuminate\Support\Carbon $from, \Illuminate\Support\Carbon $to): array
+    public static function salesAndNetIncome(Collection $shifts, \Illuminate\Support\Carbon $from, \Illuminate\Support\Carbon $to, bool $actual = false): array
     {
         if ($shifts->isEmpty()) {
             return [];
@@ -109,6 +109,17 @@ class LiveTsaBoard
         $attrs = app()->bound('request') ? app('request')->attributes : null;
         $was = [$attrs?->get('tsa_roster_from'), $attrs?->get('tsa_roster_to')];
         TsaShift::showDeletedFrom($dateFrom, $dateTo);
+        // $actual: Actual Income's figures — real returns by each order's
+        // current status, costs from Actual Cost Breakdown — the same
+        // switches ActualIncomeController::index() flips.
+        if ($actual) {
+            ExpectedIncomeCalculator::$actual = true;
+            $month = $from->format('Y-m');
+            $useActual = CostBreakdownVariant::using(CostBreakdownVariant::ACTUAL,
+                fn () => collect(CostBreakdownMonths::existing())->contains(fn ($m) => $m <= $month));
+            CostBreakdownVariant::set($useActual ? CostBreakdownVariant::ACTUAL : CostBreakdownVariant::BUDGET);
+            RequestMemo::flush();
+        }
         try {
             $net = [];
             foreach (\App\Http\Controllers\DataManagement\ExpectedIncomeController::netIncomeByTsaAndDate($dateFrom, $dateTo) as $key => $value) {
@@ -118,6 +129,11 @@ class LiveTsaBoard
         } finally {
             $attrs?->set('tsa_roster_from', $was[0]);
             $attrs?->set('tsa_roster_to', $was[1]);
+            if ($actual) {
+                ExpectedIncomeCalculator::$actual = false;
+                CostBreakdownVariant::reset();
+                RequestMemo::flush();
+            }
         }
 
         return $shifts->mapWithKeys(fn (TsaShift $t) => [$t->id => [
@@ -313,9 +329,13 @@ class LiveTsaBoard
         $to = $isCurrent ? now() : $from->copy()->endOfMonth();
 
         return \Illuminate\Support\Facades\Cache::remember(
-            (DataSet::isPartners() ? 'scoreboard:partners:figures:' : 'scoreboard:figures:') . 'v3:' . $from->format('Y-m'),
+            (DataSet::isPartners() ? 'scoreboard:partners:figures:' : 'scoreboard:figures:') . 'v4:' . $from->format('Y-m'),
             $isCurrent ? now()->addMinutes(5) : now()->addHours(12),
-            fn () => self::salesAndNetIncome(self::shiftsFor($from), $from, $to),
+            // A finished month uses Actual Income (2026-11-19: real returns
+            // and Actual Cost Breakdown — Katherine's October is 89,117.81
+            // there vs 25,007.11 projected); the running month stays on
+            // Expected Income until its returns are known.
+            fn () => self::salesAndNetIncome(self::shiftsFor($from), $from, $to, ! $isCurrent),
         );
     }
 

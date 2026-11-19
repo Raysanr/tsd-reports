@@ -279,7 +279,7 @@ class ArchiveModuleTest extends TestCase
         $this->assertArrayHasKey('net', $month);
 
         // month figures are cached (5 min for the current month)
-        $this->assertTrue(\Illuminate\Support\Facades\Cache::has('scoreboard:figures:v3:' . now()->format('Y-m')));
+        $this->assertTrue(\Illuminate\Support\Facades\Cache::has('scoreboard:figures:v4:' . now()->format('Y-m')));
 
         $this->get(route('archive.live-tsa'))->assertOk()
             ->assertSee('Sales &amp; net income by month', false)->assertDontSee('Delivered');

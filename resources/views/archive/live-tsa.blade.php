@@ -16,7 +16,7 @@
            class="rounded-md px-3 py-1.5 {{ $team === $slug ? 'bg-primary text-white shadow-sm' : 'text-ink-muted dark:text-slate-300 hover:text-ink' }}">{{ $name }}</a>
         @endforeach
     </div>
-    <p class="ml-auto text-xs text-ink-muted dark:text-slate-400">Cards: this month so far — same Gross Sales and Net Income as Data Management's Summary Sales Report.</p>
+    <p class="ml-auto text-xs text-ink-muted dark:text-slate-400">Cards: this month so far — Gross Sales and Net Income from Expected Income (Summary Sales Report).</p>
 </div>
 
 <div id="liveBoard">@include('archive.partials.live-board')</div>
@@ -33,7 +33,7 @@
     <div class="flex flex-wrap items-center justify-between gap-3 border-b border-line dark:border-slate-800 px-5 py-4">
         <div>
             <h3 class="font-semibold">Sales &amp; net income by month</h3>
-            <p class="text-xs text-ink-muted dark:text-slate-400 mt-0.5">Same Gross Sales and Net Income as Data Management's Summary Sales Report.
+            <p class="text-xs text-ink-muted dark:text-slate-400 mt-0.5">Finished months: Actual Income (real returns, Actual Cost Breakdown). This month: Expected Income, until its returns are known.
                 @if($figures['sheetMonths'])
                 <span class="ml-1 inline-flex items-center gap-1"><span class="inline-block h-1.5 w-1.5 rounded-full bg-sky-500"></span>{{ collect($figures['sheetMonths'])->map(fn ($m) => \Carbon\Carbon::create($year, $m, 1)->format('M'))->join(', ') }} from the Google Sheet (IS Report).</span>
                 @endif
