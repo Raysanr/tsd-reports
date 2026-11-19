@@ -116,9 +116,137 @@ class LiveTsaBoard
         ]])->all();
     }
 
+    /** Prefix for a partner TSA's id, so it never collides with a TSD one. */
+    public const PARTNER_ID = 'partner:';
+
+    /**
+     * Partner systems on the Scoreboard (explicit request, 2026-11-19:
+     * "make it included the partner's system" — some TSAs moved from TSD to
+     * a partner). The same figures, read from Partners Data Management's
+     * synced data set; ids prefixed with PARTNER_ID. A partners database
+     * that can't be read leaves just TSD's figures rather than an error.
+     */
+    public static function onPartners(\Closure $callback, mixed $fallback): mixed
+    {
+        try {
+            return DataSet::onPartners($callback);
+        } catch (\Illuminate\Database\QueryException $e) {
+            report($e);
+
+            return $fallback;
+        }
+    }
+
+    public static function partnerRows(?string $orderTeam = null): Collection
+    {
+        return self::onPartners(fn () => self::rows($orderTeam), collect())
+            ->map(fn (array $r) => ['id' => self::PARTNER_ID . $r['id'], 'partner' => true] + $r);
+    }
+
+    public static function partnerMonthFigures(\Illuminate\Support\Carbon $month): array
+    {
+        return collect(self::onPartners(fn () => self::monthFigures($month), []))
+            ->mapWithKeys(fn ($v, $id) => [self::PARTNER_ID . $id => $v])->all();
+    }
+
+    public static function partnerYearFigures(int $year, ?string $orderTeam = null): array
+    {
+        $figures = self::onPartners(fn () => self::yearFigures($year, $orderTeam), null)
+            ?? self::emptyYear();
+        $figures['rows'] = $figures['rows']->map(fn (array $r) => ['id' => self::PARTNER_ID . $r['id'], 'partner' => true] + $r);
+
+        return $figures;
+    }
+
+    private static function emptyYear(): array
+    {
+        $zero = array_fill(1, 12, ['sales' => 0.0, 'net' => 0.0]);
+
+        return ['rows' => collect(), 'sheetMonths' => [], 'monthTotals' => $zero, 'yearTotal' => ['sales' => 0.0, 'net' => 0.0],
+            'bestMonth' => ['sales' => null, 'net' => null], 'cellMax' => ['sales' => 1, 'net' => 1]];
+    }
+
+    /** Same person in TSD and a partner? Names are often written
+     *  differently there ("Lika Trocio" / "Trocio LIKA", "Jhun Ematong" /
+     *  "Jhun"), so: every word of the shorter name appears in the longer. */
+    public static function sameName(string $a, string $b): bool
+    {
+        $words = fn (string $n) => array_values(array_filter(preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($n))));
+        [$x, $y] = [$words($a), $words($b)];
+        if ($x === [] || $y === []) {
+            return false;
+        }
+        [$short, $long] = count($x) <= count($y) ? [$x, $y] : [$y, $x];
+
+        return array_diff($short, $long) === [];
+    }
+
+    /**
+     * TSD + partner year tables as one. A TSA who's on both rosters (moved
+     * from TSD to a partner — sameName(), and only when exactly one row on
+     * each side matches) is ONE row: their TSD and partner months add up,
+     * shown under their partner team.
+     */
+    public static function mergeYearFigures(array $tsd, array $partner): array
+    {
+        $tsdRows = $tsd['rows']->values()->all();
+        $merged = [];
+        foreach ($partner['rows'] as $r) {
+            $hits = array_keys(array_filter($tsdRows, fn ($t) => ! $t['former'] && self::sameName($t['name'], $r['name'])));
+            $partnerHits = $partner['rows']->filter(fn ($o) => self::sameName($o['name'], $r['name']))->count();
+            if (count($hits) === 1 && $partnerHits === 1) {
+                $t = $tsdRows[$hits[0]];
+                foreach ($r['months'] as $m => $v) {
+                    $r['months'][$m] = ['sales' => $v['sales'] + $t['months'][$m]['sales'], 'net' => $v['net'] + $t['months'][$m]['net']];
+                }
+                $r['photo'] = $r['photo'] ?? $t['photo'];
+                $r['name'] = mb_strlen($t['name']) > mb_strlen($r['name']) ? $t['name'] : $r['name'];
+                unset($tsdRows[$hits[0]]);
+            }
+            $merged[] = $r;
+        }
+
+        $rows = collect(array_merge(array_values($tsdRows), $merged))->map(function ($r) {
+            $r['year'] = [
+                'sales' => array_sum(array_column($r['months'], 'sales')),
+                'net' => array_sum(array_column($r['months'], 'net')),
+            ];
+
+            return $r;
+        })->sortByDesc(fn ($r) => $r['year']['net'])->values();
+
+        $monthTotals = [];
+        for ($m = 1; $m <= 12; $m++) {
+            $monthTotals[$m] = [
+                'sales' => $rows->sum(fn ($r) => $r['months'][$m]['sales']),
+                'net' => $rows->sum(fn ($r) => $r['months'][$m]['net']),
+            ];
+        }
+        $best = fn (string $k) => collect($monthTotals)->filter(fn ($t) => $t[$k] != 0)->sortByDesc($k)->keys()->first();
+
+        return [
+            'rows' => $rows,
+            'sheetMonths' => $tsd['sheetMonths'],
+            'monthTotals' => $monthTotals,
+            'yearTotal' => [
+                'sales' => array_sum(array_column($monthTotals, 'sales')),
+                'net' => array_sum(array_column($monthTotals, 'net')),
+            ],
+            'bestMonth' => ['sales' => $best('sales'), 'net' => $best('net')],
+            'cellMax' => [
+                'sales' => max(1, (float) $rows->flatMap(fn ($r) => array_column($r['months'], 'sales'))->max()),
+                'net' => max(1, (float) $rows->flatMap(fn ($r) => array_map('abs', array_column($r['months'], 'net')))->max()),
+            ],
+        ];
+    }
+
     /** tsa_shift id => profile photo URL, from each TSA's linked person. */
     private static function photosFor(Collection $shifts): array
     {
+        if (DataSet::isPartners()) {
+            return []; // people/photos live in the main Archive only
+        }
+
         return \App\Models\Employee::whereIn('tsa_shift_id', $shifts->pluck('id'))->whereNotNull('photo_path')->get()
             ->mapWithKeys(fn ($e) => [$e->tsa_shift_id => $e->photoUrl()])->all();
     }
@@ -162,7 +290,7 @@ class LiveTsaBoard
         $to = $isCurrent ? now() : $from->copy()->endOfMonth();
 
         return \Illuminate\Support\Facades\Cache::remember(
-            'scoreboard:figures:' . $from->format('Y-m'),
+            (DataSet::isPartners() ? 'scoreboard:partners:figures:' : 'scoreboard:figures:') . $from->format('Y-m'),
             $isCurrent ? now()->addMinutes(5) : now()->addHours(12),
             fn () => self::salesAndNetIncome(
                 TsaShift::where('active', true)->where('is_hidden', false)->get(), $from, $to
@@ -187,7 +315,8 @@ class LiveTsaBoard
         $photos = self::photosFor($shifts);
         $zero = ['sales' => 0.0, 'net' => 0.0];
 
-        $imports = \App\Models\ScoreboardImport::whereYear('month', $year)->get()
+        // Google Sheet months are TSD's own history only.
+        $imports = (DataSet::isPartners() ? \App\Models\ScoreboardImport::query()->whereRaw('1 = 0') : \App\Models\ScoreboardImport::whereYear('month', $year))->get()
             ->groupBy(fn ($i) => (int) $i->month->format('n'));
         $byMonth = [];
         for ($m = 1; $m <= 12; $m++) {

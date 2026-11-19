@@ -286,6 +286,47 @@ class ArchiveModuleTest extends TestCase
         $this->get(route('archive.live-tsa', ['year' => 1999]))->assertOk(); // out-of-range year falls back
     }
 
+    /** Partner systems are on the Scoreboard too (2026-11-19). A TSA who
+     *  moved from TSD to a partner is one row in the by-month table. */
+    public function test_scoreboard_includes_partner_tsas_and_merges_moved_ones(): void
+    {
+        $this->admin();
+        $this->artisan('migrate', ['--database' => \App\Support\DataSet::PARTNERS]);
+        \App\Models\ScoreboardImport::query()->delete();
+        TsaShift::create(['tsa_key' => 'MOVER', 'display_name' => 'Mover Person', 'team' => 'SH Naturals', 'active' => true]);
+        TsaShift::create(['tsa_key' => 'STAYER', 'display_name' => 'Stayer Person', 'team' => 'SH Naturals', 'active' => true]);
+        \App\Support\DataSet::onPartners(function () {
+            TsaShift::create(['tsa_key' => 'MOVER', 'display_name' => 'PERSON mover', 'team' => 'M&J', 'active' => true]);
+            TsaShift::create(['tsa_key' => 'PARTNERONLY', 'display_name' => 'Partner Only', 'team' => 'M&J', 'active' => true]);
+        });
+
+        $this->get(route('archive.live-tsa', ['team' => 'all']))->assertOk()
+            ->assertSee('Partner Only')->assertSee('Stayer Person')->assertSee('M&amp;J', false);
+
+        $figures = \App\Support\LiveTsaBoard::mergeYearFigures(
+            \App\Support\LiveTsaBoard::yearFigures((int) now()->year),
+            \App\Support\LiveTsaBoard::partnerYearFigures((int) now()->year)
+        );
+        $movers = $figures['rows']->filter(fn ($r) => \App\Support\LiveTsaBoard::sameName($r['name'], 'Mover Person'));
+        $this->assertCount(1, $movers);
+        $this->assertStringStartsWith('partner:', $movers->first()['id']);
+
+        // A partner tab shows only that partner.
+        $partnerTab = 'p:' . collect(\App\Support\DataSet::partnerTeams())->search(fn ($p) => $p['name'] === 'M&J');
+        $this->get(route('archive.live-tsa', ['team' => $partnerTab]))->assertOk()
+            ->assertSee('Partner Only')->assertDontSee('Stayer Person');
+    }
+
+    public function test_scoreboard_name_matching_for_moved_tsas(): void
+    {
+        $same = fn ($a, $b) => \App\Support\LiveTsaBoard::sameName($a, $b);
+        $this->assertTrue($same('Lika Trocio', 'Trocio LIKA'));
+        $this->assertTrue($same('Jhun Ematong', 'Jhun'));
+        $this->assertTrue($same('ANNE PASCUA', 'ANNE'));
+        $this->assertFalse($same('Gemma De Guzman', 'Joana'));
+        $this->assertFalse($same('Kathleen Santilleses', 'Katherine Chua'));
+    }
+
     public function test_live_board_team_filter_limits_cards_and_is_remembered(): void
     {
         $this->admin();
