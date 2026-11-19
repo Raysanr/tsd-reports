@@ -126,11 +126,15 @@ class LiveTsaBoard
         ]])->all();
     }
 
-    /** Active, non-hidden TSAs plus any removed on or after $since. */
+    /** Active, non-hidden TSAs plus any removed on or after $since. A
+     *  removed TSA counts even if hidden: TSAs who moved to a partner were
+     *  hidden after leaving (2026-11-19: Julie, Katherine, Lika, Angel,
+     *  Marisol), and hiding is display-only, never a reason to drop the
+     *  months she worked. */
     private static function shiftsFor(\Illuminate\Support\Carbon $since): Collection
     {
-        return TsaShift::withTrashed()->where('is_hidden', false)
-            ->where(fn ($q) => $q->where(fn ($q) => $q->whereNull('deleted_at')->where('active', true))
+        return TsaShift::withTrashed()
+            ->where(fn ($q) => $q->where(fn ($q) => $q->whereNull('deleted_at')->where('active', true)->where('is_hidden', false))
                 ->orWhere('deleted_at', '>=', $since->copy()->startOfDay()))
             ->orderBy('sort_order')->get();
     }
@@ -309,7 +313,7 @@ class LiveTsaBoard
         $to = $isCurrent ? now() : $from->copy()->endOfMonth();
 
         return \Illuminate\Support\Facades\Cache::remember(
-            (DataSet::isPartners() ? 'scoreboard:partners:figures:' : 'scoreboard:figures:') . 'v2:' . $from->format('Y-m'),
+            (DataSet::isPartners() ? 'scoreboard:partners:figures:' : 'scoreboard:figures:') . 'v3:' . $from->format('Y-m'),
             $isCurrent ? now()->addMinutes(5) : now()->addHours(12),
             fn () => self::salesAndNetIncome(self::shiftsFor($from), $from, $to),
         );

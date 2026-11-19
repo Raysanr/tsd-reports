@@ -279,7 +279,7 @@ class ArchiveModuleTest extends TestCase
         $this->assertArrayHasKey('net', $month);
 
         // month figures are cached (5 min for the current month)
-        $this->assertTrue(\Illuminate\Support\Facades\Cache::has('scoreboard:figures:v2:' . now()->format('Y-m')));
+        $this->assertTrue(\Illuminate\Support\Facades\Cache::has('scoreboard:figures:v3:' . now()->format('Y-m')));
 
         $this->get(route('archive.live-tsa'))->assertOk()
             ->assertSee('Sales &amp; net income by month', false)->assertDontSee('Delivered');
@@ -328,7 +328,7 @@ class ArchiveModuleTest extends TestCase
         $at = now()->startOfMonth()->addHours(10);
         Order::factory()->create(['tsa_name' => 'GONE', 'team' => 'SH Naturals', 'is_upsell' => true, 'amount' => 1000, 'status_code' => 1,
             'disposition' => 'Upsell w/ Confirmation', 'pancake_created_at' => $at, 'pancake_inserted_at' => $at]);
-        $gone->forceFill(['last_day' => now()->toDateString()])->save();
+        $gone->forceFill(['last_day' => now()->toDateString(), 'is_hidden' => true])->save(); // hidden after leaving
         $gone->delete();
 
         $tsd = \App\Support\LiveTsaBoard::yearFigures((int) now()->year);
