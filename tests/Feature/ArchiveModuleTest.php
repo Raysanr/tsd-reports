@@ -279,7 +279,7 @@ class ArchiveModuleTest extends TestCase
         $this->assertArrayHasKey('net', $month);
 
         // month figures are cached (5 min for the current month)
-        $this->assertTrue(\Illuminate\Support\Facades\Cache::has('scoreboard:figures:' . now()->format('Y-m')));
+        $this->assertTrue(\Illuminate\Support\Facades\Cache::has('scoreboard:figures:v2:' . now()->format('Y-m')));
 
         $this->get(route('archive.live-tsa'))->assertOk()
             ->assertSee('Sales &amp; net income by month', false)->assertDontSee('Delivered');
@@ -315,6 +315,35 @@ class ArchiveModuleTest extends TestCase
         $partnerTab = 'p:' . collect(\App\Support\DataSet::partnerTeams())->search(fn ($p) => $p['name'] === 'M&J');
         $this->get(route('archive.live-tsa', ['team' => $partnerTab]))->assertOk()
             ->assertSee('Partner Only')->assertDontSee('Stayer Person');
+    }
+
+    /** A TSA removed from TSD (moved to a partner) keeps her TSD months up
+     *  to her last day, joined with her partner row (2026-11-19, Julie). */
+    public function test_scoreboard_keeps_a_moved_tsas_tsd_months(): void
+    {
+        $this->admin();
+        $this->artisan('migrate', ['--database' => \App\Support\DataSet::PARTNERS]);
+        \App\Models\ScoreboardImport::query()->delete();
+        $gone = TsaShift::create(['tsa_key' => 'GONE', 'display_name' => 'Gone Person', 'team' => 'SH Naturals', 'active' => true]);
+        $at = now()->startOfMonth()->addHours(10);
+        Order::factory()->create(['tsa_name' => 'GONE', 'team' => 'SH Naturals', 'is_upsell' => true, 'amount' => 1000, 'status_code' => 1,
+            'disposition' => 'Upsell w/ Confirmation', 'pancake_created_at' => $at, 'pancake_inserted_at' => $at]);
+        $gone->forceFill(['last_day' => now()->toDateString()])->save();
+        $gone->delete();
+
+        $tsd = \App\Support\LiveTsaBoard::yearFigures((int) now()->year);
+        $row = $tsd['rows']->firstWhere('name', 'Gone Person');
+        $this->assertNotNull($row);
+        $this->assertTrue($row['former']);
+        $this->assertGreaterThan(0, $row['months'][(int) now()->month]['sales']);
+
+        \App\Support\DataSet::onPartners(fn () => TsaShift::create(['tsa_key' => 'MLC:Gone', 'display_name' => 'Gone', 'team' => 'MLC', 'active' => true]));
+        $merged = \App\Support\LiveTsaBoard::mergeYearFigures($tsd, \App\Support\LiveTsaBoard::partnerYearFigures((int) now()->year));
+        $rows = $merged['rows']->filter(fn ($r) => \App\Support\LiveTsaBoard::sameName($r['name'], 'Gone'));
+        $this->assertCount(1, $rows);
+        $this->assertSame('Gone Person', $rows->first()['name']);
+        $this->assertFalse($rows->first()['former']);
+        $this->assertGreaterThan(0, $rows->first()['months'][(int) now()->month]['sales']);
     }
 
     public function test_scoreboard_name_matching_for_moved_tsas(): void

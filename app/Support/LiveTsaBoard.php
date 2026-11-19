@@ -104,16 +104,35 @@ class LiveTsaBoard
             ->pipe(fn ($o) => ProductPerformance::withoutHiddenProductOrders(Order::withoutTiktokUpsells($o)));
         $byKey = $orders->groupBy('tsa_name');
 
-        $net = [];
-        foreach (\App\Http\Controllers\DataManagement\ExpectedIncomeController::netIncomeByTsaAndDate($dateFrom, $dateTo) as $key => $value) {
-            $tsaId = (int) strtok((string) $key, ':');
-            $net[$tsaId] = ($net[$tsaId] ?? 0) + (float) $value;
+        // A TSA removed during the range still has her figures up to her
+        // last day (same roster window the Summary Sales Report uses).
+        $attrs = app()->bound('request') ? app('request')->attributes : null;
+        $was = [$attrs?->get('tsa_roster_from'), $attrs?->get('tsa_roster_to')];
+        TsaShift::showDeletedFrom($dateFrom, $dateTo);
+        try {
+            $net = [];
+            foreach (\App\Http\Controllers\DataManagement\ExpectedIncomeController::netIncomeByTsaAndDate($dateFrom, $dateTo) as $key => $value) {
+                $tsaId = (int) strtok((string) $key, ':');
+                $net[$tsaId] = ($net[$tsaId] ?? 0) + (float) $value;
+            }
+        } finally {
+            $attrs?->set('tsa_roster_from', $was[0]);
+            $attrs?->set('tsa_roster_to', $was[1]);
         }
 
         return $shifts->mapWithKeys(fn (TsaShift $t) => [$t->id => [
             'sales' => (float) ProductPerformance::tally($byKey->get($t->tsa_key, collect()))['upsell_sales'],
             'net'   => round($net[$t->id] ?? 0, 2),
         ]])->all();
+    }
+
+    /** Active, non-hidden TSAs plus any removed on or after $since. */
+    private static function shiftsFor(\Illuminate\Support\Carbon $since): Collection
+    {
+        return TsaShift::withTrashed()->where('is_hidden', false)
+            ->where(fn ($q) => $q->where(fn ($q) => $q->whereNull('deleted_at')->where('active', true))
+                ->orWhere('deleted_at', '>=', $since->copy()->startOfDay()))
+            ->orderBy('sort_order')->get();
     }
 
     /** Prefix for a partner TSA's id, so it never collides with a TSD one. */
@@ -192,7 +211,7 @@ class LiveTsaBoard
         $tsdRows = $tsd['rows']->values()->all();
         $merged = [];
         foreach ($partner['rows'] as $r) {
-            $hits = array_keys(array_filter($tsdRows, fn ($t) => ! $t['former'] && self::sameName($t['name'], $r['name'])));
+            $hits = array_keys(array_filter($tsdRows, fn ($t) => (! $t['former'] || ! empty($t['removed'])) && self::sameName($t['name'], $r['name'])));
             $partnerHits = $partner['rows']->filter(fn ($o) => self::sameName($o['name'], $r['name']))->count();
             if (count($hits) === 1 && $partnerHits === 1) {
                 $t = $tsdRows[$hits[0]];
@@ -290,11 +309,9 @@ class LiveTsaBoard
         $to = $isCurrent ? now() : $from->copy()->endOfMonth();
 
         return \Illuminate\Support\Facades\Cache::remember(
-            (DataSet::isPartners() ? 'scoreboard:partners:figures:' : 'scoreboard:figures:') . $from->format('Y-m'),
+            (DataSet::isPartners() ? 'scoreboard:partners:figures:' : 'scoreboard:figures:') . 'v2:' . $from->format('Y-m'),
             $isCurrent ? now()->addMinutes(5) : now()->addHours(12),
-            fn () => self::salesAndNetIncome(
-                TsaShift::where('active', true)->where('is_hidden', false)->get(), $from, $to
-            ),
+            fn () => self::salesAndNetIncome(self::shiftsFor($from), $from, $to),
         );
     }
 
@@ -309,9 +326,11 @@ class LiveTsaBoard
      */
     public static function yearFigures(int $year, ?string $orderTeam = null): array
     {
-        $shifts = TsaShift::where('active', true)->where('is_hidden', false)
-            ->when($orderTeam, fn ($q) => $q->where('team', $orderTeam))
-            ->orderBy('sort_order')->get();
+        // Current roster plus anyone removed since the Scoreboard took over
+        // from the sheet (2026-11-19: Julie worked October, then moved to a
+        // partner — her October must still show).
+        $shifts = self::shiftsFor(\Illuminate\Support\Carbon::parse(self::SYSTEM_FROM))
+            ->when($orderTeam, fn ($c) => $c->where('team', $orderTeam))->sortBy('sort_order')->values();
         $photos = self::photosFor($shifts);
         $zero = ['sales' => 0.0, 'net' => 0.0];
 
@@ -339,10 +358,14 @@ class LiveTsaBoard
                 'name' => $t->display_name ?: $t->tsa_key,
                 'photo' => $photos[$t->id] ?? null,
                 'team' => $t->team ? Teams::nameForOrderTeam($t->team, today()) : null,
-                'former' => false,
+                'former' => $t->trashed(),
+                'removed' => $t->trashed(),
                 'months' => $months,
             ];
-        });
+        })
+            // A removed TSA with nothing to show (e.g. a test entry) is left out.
+            ->reject(fn ($r) => $r['removed'] && collect($r['months'])->every(fn ($v) => $v['sales'] == 0 && $v['net'] == 0))
+            ->values();
 
         // Sheet rows for anyone NOT on the current roster → one "former" row per name.
         $current = $shifts->pluck('id')->all();
