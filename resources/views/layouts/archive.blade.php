@@ -16,6 +16,8 @@
          Archive page's own JS is inline via @push('scripts'), so nothing
          here depends on app.js-only globals. --}}
     @vite(['resources/css/calls.css', 'resources/js/calls.js'])
+    {{-- Personal accent + sidebar colors (Settings → Appearance), same as every other layout (2026-11-19). --}}
+    @include('partials.theme-color')
     <style>
     dialog.arc-modal::backdrop { background: rgba(2,6,23,0.55); backdrop-filter: blur(3px); }
     dialog.arc-modal[open] { animation: arc-pop .16s ease-out; }
@@ -64,7 +66,7 @@
        class="fixed md:relative inset-y-0 left-0 z-50 w-64 shrink-0 bg-sidebar flex flex-col h-full shadow-xl
               -translate-x-full md:translate-x-0 transition-transform duration-200 ease-out">
     @include('partials.sidebar-rail-toggle')
-    <div class="pointer-events-none absolute inset-x-0 top-0 h-56" style="background: radial-gradient(120% 100% at 18% 0%, rgba(234,179,8,0.16), transparent 70%);"></div>
+    <div class="pointer-events-none absolute inset-x-0 top-0 h-56" style="background: radial-gradient(120% 100% at 18% 0%, color-mix(in srgb, var(--color-yellow-500) 16%, transparent), transparent 70%);"></div>
 
     <div class="rail-header relative px-6 py-5 border-b border-white/10">
         <div class="flex items-center justify-between gap-3">

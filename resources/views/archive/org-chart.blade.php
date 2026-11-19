@@ -10,8 +10,8 @@
 #orgEdges { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
 #orgEdges .edge { fill: none; stroke: var(--org-line); stroke-width: 2; }
 #orgEdges .edge-hit { fill: none; stroke: transparent; stroke-width: 16; pointer-events: stroke; cursor: pointer; }
-#orgEdges .edge-hit:hover + .edge, #orgEdges .edge.is-selected { stroke: #CA8A04; stroke-width: 3; }
-#orgEdges .edge-temp { fill: none; stroke: #CA8A04; stroke-width: 2.5; stroke-dasharray: 6 5; }
+#orgEdges .edge-hit:hover + .edge, #orgEdges .edge.is-selected { stroke: var(--color-yellow-600, #CA8A04); stroke-width: 3; }
+#orgEdges .edge-temp { fill: none; stroke: var(--color-yellow-600, #CA8A04); stroke-width: 2.5; stroke-dasharray: 6 5; }
 #orgStage { --org-line: #a8a29e; }
 .dark #orgStage { --org-line: #475569; }
 
@@ -22,13 +22,13 @@
 .dark .org-avatar { background: #0f172a; }
 .org-card { margin-top: -30px; padding: 38px 16px 16px; width: 100%; border-radius: 1rem; border-top-width: 10px; text-align: center; box-shadow: 0 1px 2px rgba(32,28,18,.05), 0 14px 28px -18px rgba(133,77,14,.35); outline: 1px solid rgba(231,223,201,.9); transition: box-shadow .15s ease; }
 .dark .org-card { outline-color: #1e293b; }
-.org-node.is-target .org-card { outline: 3px solid #CA8A04; outline-offset: 3px; }
+.org-node.is-target .org-card { outline: 3px solid var(--color-yellow-600, #CA8A04); outline-offset: 3px; }
 .org-node.is-invalid { opacity: .4; }
 
 /* Connector dot at the bottom of every card. */
-.org-handle { position: absolute; left: 50%; bottom: -9px; width: 18px; height: 18px; margin-left: -9px; border-radius: 9999px; background: #fff; border: 2px solid #CA8A04; cursor: crosshair; opacity: 0; transition: opacity .15s ease, transform .15s ease; z-index: 2; }
+.org-handle { position: absolute; left: 50%; bottom: -9px; width: 18px; height: 18px; margin-left: -9px; border-radius: 9999px; background: #fff; border: 2px solid var(--color-yellow-600, #CA8A04); cursor: crosshair; opacity: 0; transition: opacity .15s ease, transform .15s ease; z-index: 2; }
 .org-node:hover .org-handle, body.org-connecting .org-handle { opacity: 1; }
-.org-handle:hover { transform: scale(1.25); background: #CA8A04; }
+.org-handle:hover { transform: scale(1.25); background: var(--color-yellow-600, #CA8A04); }
 .org-card { position: relative; }
 .org-handle-side { bottom: auto; top: 50%; margin-left: 0; margin-top: -9px; }
 .org-handle-side[data-side="left"] { left: -9px; }
