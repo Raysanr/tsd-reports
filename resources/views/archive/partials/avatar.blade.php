@@ -7,5 +7,5 @@
 @if(! empty($photo))
 <img src="{{ $photo }}" alt="{{ $name }}" title="{{ $name }}" loading="lazy" draggable="false" class="{{ $sizeClass }} shrink-0 rounded-full object-cover bg-slate-200 dark:bg-slate-700 ring-2 ring-white dark:ring-slate-900">
 @else
-<span class="inline-flex {{ $sizeClass }} shrink-0 items-center justify-center rounded-full bg-sidebar dark:bg-slate-700 font-semibold text-white ring-2 ring-white dark:ring-slate-900" title="{{ $name }}">{{ $initials }}</span>
+<span class="inline-flex {{ $sizeClass }} shrink-0 items-center justify-center rounded-full bg-zinc-900 dark:bg-slate-700 font-semibold text-white ring-2 ring-white dark:ring-slate-900" title="{{ $name }}">{{ $initials }}</span>
 @endif

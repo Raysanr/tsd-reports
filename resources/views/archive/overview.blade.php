@@ -16,7 +16,7 @@
 @section('content')
 <div class="space-y-6">
     {{-- Hero --}}
-    <div class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-sidebar via-sidebar to-yellow-950 p-6 md:p-8 text-white shadow-panel">
+    <div class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-zinc-900 via-zinc-900 to-yellow-950 p-6 md:p-8 text-white shadow-panel">
         <div class="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-yellow-500/20 blur-3xl"></div>
         <div class="pointer-events-none absolute -bottom-20 right-40 h-56 w-56 rounded-full bg-amber-500/15 blur-3xl"></div>
         <div class="relative flex flex-col md:flex-row md:items-end md:justify-between gap-6">
