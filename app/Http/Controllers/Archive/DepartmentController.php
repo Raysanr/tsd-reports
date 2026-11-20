@@ -13,6 +13,8 @@ class DepartmentController extends Controller
 {
     public function index(Request $request)
     {
+        \App\Support\ArchiveRosterSync::run(); // match TSA Management + partners before drawing (2026-11-20)
+
         $q = trim((string) $request->input('q', ''));
 
         $departments = Department::active()

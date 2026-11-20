@@ -1009,6 +1009,7 @@ class ArchiveModuleTest extends TestCase
     public function test_setup_guide_shows_until_teams_people_and_heads_exist(): void
     {
         $this->admin();
+        TsaShift::query()->delete(); // no roster: the pages' own sync adds nobody
         $this->get(route('archive.org-chart'))->assertSee('Set up your org chart in 3 steps');
         $team = Department::create(['name' => 'Solo', 'color' => 'sky']);
         $p = Employee::create(['full_name' => 'Only One', 'status' => 'active', 'department_id' => $team->id]);
@@ -1138,5 +1139,20 @@ class ArchiveModuleTest extends TestCase
         $this->assertCount(1, $head['children']); // only CLOSING, not Jhun beside it
         $this->assertTrue($head['children'][0]['model']->is($closing));
         $this->assertSame($jhun->id, $head['children'][0]['children'][0]['model']->id);
+    }
+    public function test_org_chart_and_teams_pages_run_the_roster_sync(): void
+    {
+        $this->admin();
+        $shift = TsaShift::create(['tsa_key' => 'BACK', 'display_name' => 'Back Again', 'team' => 'SH Naturals', 'active' => true]);
+        \App\Support\ArchiveRosterSync::run();
+        $e = Employee::firstWhere('tsa_shift_id', $shift->id);
+        $e->update(['status' => 'resigned', 'left_at' => today()]); // resigned while away
+
+        $this->get(route('archive.org-chart'))->assertOk()->assertSee('Back Again');
+        $this->assertSame('active', $e->fresh()->status);
+
+        $e->update(['status' => 'resigned']);
+        $this->get(route('archive.departments'))->assertOk();
+        $this->assertSame('active', $e->fresh()->status);
     }
 }

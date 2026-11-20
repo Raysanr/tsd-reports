@@ -15,6 +15,8 @@ class OrgChartController extends Controller
 {
     public function index(Request $request)
     {
+        \App\Support\ArchiveRosterSync::run(); // match TSA Management + partners before drawing (2026-11-20)
+
         // Default: the chart builds itself from Teams + People (2026-11-20).
         // ?mode=arrange keeps the old freeform drag-and-draw canvas.
         if ($request->input('mode') !== 'arrange') {
