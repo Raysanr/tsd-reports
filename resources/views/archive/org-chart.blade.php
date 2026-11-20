@@ -31,8 +31,6 @@
 .org-c-head { background: linear-gradient(#fffbeb, #fff); }
 .dark .org-c-head { background: #111827; }
 .org-c-compact { width: 13.5rem; padding: 8px 10px; border-radius: .75rem; border-top-width: 0 !important; border-left-width: 4px; border-left-style: solid; }
-.org-stack { display: grid; gap: 8px; padding: 10px; border-radius: 1rem; background: rgba(148,163,184,.08); outline: 1px dashed var(--org-line); }
-.org-stack-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .org-cell.is-found .org-c { outline: 3px solid var(--color-yellow-600, #CA8A04); outline-offset: 3px; }
 .org-canvas { background-image: radial-gradient(circle, rgba(148,163,184,.28) 1px, transparent 1px); background-size: 20px 20px; }
 @media print {
