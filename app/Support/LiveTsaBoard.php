@@ -120,11 +120,20 @@ class LiveTsaBoard
             CostBreakdownVariant::set($useActual ? CostBreakdownVariant::ACTUAL : CostBreakdownVariant::BUDGET);
             RequestMemo::flush();
         }
+        $tiktok = [];
         try {
             $net = [];
             foreach (\App\Http\Controllers\DataManagement\ExpectedIncomeController::netIncomeByTsaAndDate($dateFrom, $dateTo) as $key => $value) {
                 $tsaId = (int) strtok((string) $key, ':');
                 $net[$tsaId] = ($net[$tsaId] ?? 0) + (float) $value;
+            }
+            // TikTok (2026-11-20: ANNE's October TikTok upsells were missing,
+            // and Actual Income's total folds TikTok in): a TikTok TSA's
+            // TikTok cards add to her sales and net income.
+            foreach (\App\Http\Controllers\DataManagement\ExpectedIncomeController::tiktokTotalsByTsaAndDate($dateFrom, $dateTo) as $key => $v) {
+                $tsaId = (int) strtok((string) $key, ':');
+                $tiktok[$tsaId] = ($tiktok[$tsaId] ?? 0) + (float) $v['gross_sales'];
+                $net[$tsaId] = ($net[$tsaId] ?? 0) + (float) $v['net_income'];
             }
         } finally {
             $attrs?->set('tsa_roster_from', $was[0]);
@@ -137,7 +146,7 @@ class LiveTsaBoard
         }
 
         return $shifts->mapWithKeys(fn (TsaShift $t) => [$t->id => [
-            'sales' => (float) ProductPerformance::tally($byKey->get($t->tsa_key, collect()))['upsell_sales'],
+            'sales' => (float) ProductPerformance::tally($byKey->get($t->tsa_key, collect()))['upsell_sales'] + ($tiktok[$t->id] ?? 0),
             'net'   => round($net[$t->id] ?? 0, 2),
         ]])->all();
     }
@@ -438,7 +447,7 @@ class LiveTsaBoard
         $to = $isCurrent ? now() : $from->copy()->endOfMonth();
 
         return \Illuminate\Support\Facades\Cache::remember(
-            (DataSet::isPartners() ? 'scoreboard:partners:figures:' : 'scoreboard:figures:') . 'v4:' . $from->format('Y-m'),
+            (DataSet::isPartners() ? 'scoreboard:partners:figures:' : 'scoreboard:figures:') . 'v5:' . $from->format('Y-m'),
             $isCurrent ? now()->addMinutes(5) : now()->addHours(12),
             // A finished month uses Actual Income (2026-11-19: real returns
             // and Actual Cost Breakdown — Katherine's October is 89,117.81

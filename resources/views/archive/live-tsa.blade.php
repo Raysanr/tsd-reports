@@ -22,7 +22,7 @@
            class="rounded-md px-3 py-1.5 {{ $show === $key ? 'bg-primary text-white shadow-sm' : 'text-ink-muted dark:text-slate-300 hover:text-ink' }}">{{ $label }}</a>
         @endforeach
     </div>
-    <p class="ml-auto text-xs text-ink-muted dark:text-slate-400">Cards: this month so far — Gross Sales and Net Income from Expected Income (Summary Sales Report).</p>
+    <p class="ml-auto text-xs text-ink-muted dark:text-slate-400">Cards: this month so far — Gross Sales and Net Income from Expected Income, TikTok included.</p>
 </div>
 
 <div id="liveBoard">@include('archive.partials.live-board')</div>
