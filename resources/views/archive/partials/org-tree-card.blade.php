@@ -7,6 +7,7 @@
     $team = $isTeam ? $m : ($node['headOfTeam'] ?? $m->department);
     $c = $team ? $team->colorClasses() : \App\Models\Department::COLORS['slate'];
     $name = $isTeam ? $m->name : $m->full_name;
+    $n = $isTeam ? ($m->people_total ?? $m->employees_count) : 0; // team: head + members + sub-teams
     $sub = $isTeam
         ? ($m->head ? 'Head: ' . $m->head->full_name : 'No head yet')
         : ($node['isHead'] ? 'Head of ' . $node['headOfTeam']->name : ($m->position ?: 'No position set'));
@@ -21,7 +22,7 @@
                 </span>
                 <span class="min-w-0 text-left">
                     <span class="block font-bold leading-tight truncate">{{ $m->name }}</span>
-                    <span class="block text-xs text-ink-muted dark:text-slate-400">{{ $m->employees_count }} {{ \Illuminate\Support\Str::plural('person', $m->employees_count) }}</span>
+                    <span class="block text-xs text-ink-muted dark:text-slate-400">{{ $n }} {{ \Illuminate\Support\Str::plural('person', $n) }}</span>
                 </span>
             </span>
             @unless($m->head)

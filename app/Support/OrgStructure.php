@@ -33,6 +33,29 @@ class OrgStructure
             ->orderBy('sort_order')->orderBy('name')->get()->keyBy('id');
         $people = Employee::current()->with('department')->orderBy('full_name')->get()->keyBy('id');
 
+        // A team card counts everyone in it: its head, its members and
+        // everyone in its sub-teams, each person once (2026-11-20: TEAM SH
+        // E-COM showed "0 people" with all its TSAs in CLOSING / OPENING).
+        $direct = $people->groupBy('department_id', true)->map(fn ($g) => $g->keys()->all());
+        $subTeams = $teams->groupBy('parent_id', true)->map(fn ($g) => $g->keys()->all());
+        $everyone = function (int $id, array $seen = []) use (&$everyone, $teams, $people, $direct, $subTeams): array {
+            $seen[$id] = true;
+            $ids = $direct[$id] ?? [];
+            if (($h = $teams[$id]->head_employee_id) && $people->has($h)) {
+                $ids[] = $h;
+            }
+            foreach ($subTeams[$id] ?? [] as $sub) {
+                if (! isset($seen[$sub])) {
+                    $ids = array_merge($ids, $everyone($sub, $seen));
+                }
+            }
+
+            return array_values(array_unique($ids));
+        };
+        foreach ($teams as $t) {
+            $t->people_total = count($everyone($t->id));
+        }
+
         // person id => team id they head. Heading several teams: the
         // top-most one wins (head of TEAM PARTNERS and of its sub-team
         // PEAK.CO sits under TEAM PARTNERS, above all its sub-teams).

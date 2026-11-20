@@ -1191,4 +1191,24 @@ class ArchiveModuleTest extends TestCase
         $this->put(route('archive.departments.update', $ecom), ['name' => $ecom->name, 'color' => 'sky', 'parent_id' => $tsd->id])->assertSessionHasNoErrors();
         $this->assertNull($ecom->fresh()->under_employee_ids);
     }
+    public function test_team_cards_count_the_head_and_everyone_in_sub_teams(): void
+    {
+        $this->admin();
+        TsaShift::query()->delete();
+        $ecom = Department::create(['name' => 'TEAM SH E-COM']);
+        $closing = Department::create(['name' => 'CLOSING', 'parent_id' => $ecom->id]);
+        $opening = Department::create(['name' => 'OPENING', 'parent_id' => $ecom->id]);
+        $gretchen = Employee::create(['full_name' => 'Gretchen', 'status' => 'active']); // head, in no team
+        $ecom->update(['head_employee_id' => $gretchen->id]);
+        foreach (['A', 'B', 'C'] as $n) {
+            Employee::create(['full_name' => "Closer {$n}", 'status' => 'active', 'department_id' => $closing->id]);
+        }
+        Employee::create(['full_name' => 'Opener', 'status' => 'active', 'department_id' => $opening->id]);
+        Employee::create(['full_name' => 'Gone', 'status' => 'resigned', 'department_id' => $opening->id]);
+
+        $teams = \App\Support\OrgStructure::build()['teams']->keyBy('id');
+        $this->assertSame(5, $teams[$ecom->id]->people_total); // Gretchen + 3 + 1
+        $this->assertSame(3, $teams[$closing->id]->people_total);
+        $this->get(route('archive.org-chart'))->assertOk()->assertSee('5 people');
+    }
 }
