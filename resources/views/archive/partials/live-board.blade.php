@@ -2,7 +2,11 @@
 <div data-live-board>
     @if($rows->isEmpty())
     <div class="rounded-2xl bg-white dark:bg-slate-900 ring-1 ring-line dark:ring-slate-800">
+        @if(($show ?? 'all') === 'former')
+        @include('archive.partials.empty', ['title' => 'Cards show the current roster', 'text' => 'Former TSAs are in the by-month table below.'])
+        @else
         @include('archive.partials.empty', ['title' => 'No active TSAs', 'text' => 'TSAs marked active in TSA Management will appear here.'])
+        @endif
     </div>
     @else
     <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
@@ -27,6 +31,11 @@
                     <dd class="mt-0.5 text-lg font-bold tabular-nums {{ $t['net'] < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-300' }}">{{ $t['net'] < 0 ? '−' : '' }}₱{{ number_format(abs($t['net']), 2) }}</dd>
                 </div>
             </dl>
+            @if(!empty($r['parts']))
+            <p class="mt-2.5 text-[11px] text-ink-muted dark:text-slate-400 tabular-nums">
+                @foreach($r['parts'] as $p){{ $loop->first ? '' : ' · ' }}{{ $p['label'] }} ₱{{ number_format($p['sales'], 0) }}@endforeach
+            </p>
+            @endif
         </article>
         @endforeach
     </div>

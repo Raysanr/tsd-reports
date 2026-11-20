@@ -346,6 +346,65 @@ class ArchiveModuleTest extends TestCase
         $this->assertGreaterThan(0, $rows->first()['months'][(int) now()->month]['sales']);
     }
 
+    /** One card per person (2026-11-20): Jhun's TSD and M&J cards combine,
+     *  and SH Mari (M&J + PEAK.CO) joins Marisol through NAME_ALIASES. */
+    public function test_scoreboard_combines_cards_and_rows_for_the_same_person(): void
+    {
+        $row = fn ($id, $name, $team, $partner = false, $former = false) => ['id' => $id, 'name' => $name, 'team' => $team, 'partner' => $partner, 'former' => $former, 'photo' => null];
+        $rows = collect([
+            $row(1, 'Jhun Ematong', 'CLOSING'),
+            $row('partner:7', 'Jhun', 'M&J', true),
+            $row('partner:8', 'SH Mari', 'M&J', true),
+            $row('partner:9', 'SH Mari', 'PEAK.CO', true),
+            $row(2, 'Gemma De Guzman', 'OPENING'),
+        ]);
+        $totals = [1 => ['sales' => 8700, 'net' => 4993.84], 'partner:7' => ['sales' => 137266, 'net' => -1616.67],
+            'partner:8' => ['sales' => 3302, 'net' => -650.06], 'partner:9' => ['sales' => 125375, 'net' => -12126.91], 2 => ['sales' => 1, 'net' => 1]];
+
+        [$cards, $totals] = \App\Support\LiveTsaBoard::mergeCards($rows, $totals);
+        $this->assertCount(3, $cards);
+        $jhun = $cards->firstWhere('name', 'Jhun Ematong');
+        $this->assertSame('partner:7', $jhun['id']);
+        $this->assertSame('CLOSING · M&J', $jhun['team']);
+        $this->assertEqualsWithDelta(145966, $totals['partner:7']['sales'], 0.001);
+        $this->assertEqualsWithDelta(3377.17, $totals['partner:7']['net'], 0.001);
+        $mari = $cards->firstWhere('name', 'SH Mari');
+        $this->assertCount(2, $mari['parts']);
+        $this->assertEqualsWithDelta(128677, $totals[$mari['id']]['sales'], 0.001);
+
+        // By-month table: Marisol's TSD months (removed, former) join both SH Mari rows.
+        $months = fn ($v) => array_fill(1, 12, ['sales' => $v, 'net' => 0.0]);
+        $year = fn ($list) => ['rows' => collect($list), 'sheetMonths' => []];
+        $merged = \App\Support\LiveTsaBoard::mergeYearFigures(
+            $year([$row(3, 'Marisol Lagarde', 'CLOSING', false, true) + ['removed' => true, 'months' => $months(10.0)]]),
+            $year([$row('partner:8', 'SH Mari', 'M&J', true) + ['months' => $months(1.0)], $row('partner:9', 'SH Mari', 'PEAK.CO', true) + ['months' => $months(2.0)]])
+        );
+        $this->assertCount(1, $merged['rows']);
+        $this->assertSame('Marisol Lagarde', $merged['rows'][0]['name']);
+        $this->assertFalse($merged['rows'][0]['former']);
+        $this->assertEqualsWithDelta(13 * 12, $merged['rows'][0]['year']['sales'], 0.001);
+    }
+
+    public function test_scoreboard_active_and_former_filter(): void
+    {
+        $this->admin();
+        \App\Models\ScoreboardImport::query()->delete();
+        TsaShift::create(['tsa_key' => 'STILLHERE', 'display_name' => 'Still Here', 'team' => 'SH Naturals', 'active' => true]);
+        $left = TsaShift::create(['tsa_key' => 'LEFTUS', 'display_name' => 'Left Us', 'team' => 'SH Naturals', 'active' => true]);
+        $at = now()->startOfMonth()->addHours(10);
+        Order::factory()->create(['tsa_name' => 'LEFTUS', 'team' => 'SH Naturals', 'is_upsell' => true, 'amount' => 1000, 'status_code' => 1,
+            'disposition' => 'Upsell w/ Confirmation', 'pancake_created_at' => $at, 'pancake_inserted_at' => $at]);
+        $left->forceFill(['last_day' => now()->toDateString()])->save();
+        $left->delete();
+
+        $this->get(route('archive.live-tsa', ['team' => 'sh-naturals', 'show' => 'former']))->assertOk()
+            ->assertSee('Left Us')->assertDontSee('Still Here');
+        $this->get(route('archive.live-tsa', ['team' => 'sh-naturals']))->assertOk() // remembered
+            ->assertSee('Left Us')->assertDontSee('Still Here');
+        $this->get(route('archive.live-tsa', ['team' => 'sh-naturals', 'show' => 'active']))->assertOk()
+            ->assertSee('Still Here')->assertDontSee('Left Us');
+    }
+
     public function test_scoreboard_name_matching_for_moved_tsas(): void
     {
         $same = fn ($a, $b) => \App\Support\LiveTsaBoard::sameName($a, $b);

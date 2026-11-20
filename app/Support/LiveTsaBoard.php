@@ -220,32 +220,141 @@ class LiveTsaBoard
         return array_diff($short, $long) === [];
     }
 
+    /** Same person written under names with no word in common (2026-11-20:
+     *  "SH MARI AND MARISOL IS THE SAME PERSON"). Lowercase name => the
+     *  name to match on instead. */
+    public const NAME_ALIASES = [
+        'sh mari' => 'Marisol Lagarde',
+    ];
+
+    private static function matchName(string $name): string
+    {
+        return self::NAME_ALIASES[mb_strtolower(trim(preg_replace('/\s+/u', ' ', $name)))] ?? $name;
+    }
+
     /**
-     * TSD + partner year tables as one. A TSA who's on both rosters (moved
-     * from TSD to a partner — sameName(), and only when exactly one row on
-     * each side matches) is ONE row: their TSD and partner months add up,
-     * shown under their partner team.
+     * Rows that are the same person across systems (TSD, each partner),
+     * as groups of row indexes. Two rows join when they come from different
+     * systems, sameName() matches (after NAME_ALIASES), and each is the only
+     * match for the other in its system. Google Sheet-only rows ("former:")
+     * never join.
+     *
+     * @param  array<int, array>  $rows  each with 'id', 'name', 'team', 'partner'
+     * @return array<int, int[]>
+     */
+    public static function personGroups(array $rows): array
+    {
+        $source = fn (array $r) => empty($r['partner']) ? 'tsd' : 'p:' . ($r['team'] ?? '');
+        $names = array_map(fn ($r) => self::matchName($r['name']), $rows);
+        $eligible = array_map(fn ($r) => ! str_starts_with((string) $r['id'], 'former:'), $rows);
+        $matchesIn = function (int $i, string $src) use ($rows, $names, $eligible, $source) {
+            return array_keys(array_filter($rows, fn ($r, $j) => $j !== $i && $eligible[$j] && $source($r) === $src && self::sameName($names[$i], $names[$j]), ARRAY_FILTER_USE_BOTH));
+        };
+
+        $parent = array_keys($rows);
+        $find = function (int $i) use (&$parent, &$find) { return $parent[$i] === $i ? $i : ($parent[$i] = $find($parent[$i])); };
+        foreach ($rows as $i => $a) {
+            if (! $eligible[$i]) {
+                continue;
+            }
+            foreach ($rows as $j => $b) {
+                if ($j <= $i || ! $eligible[$j] || $source($a) === $source($b) || ! self::sameName($names[$i], $names[$j])) {
+                    continue;
+                }
+                if (count($matchesIn($i, $source($b))) === 1 && count($matchesIn($j, $source($a))) === 1) {
+                    $parent[$find($j)] = $find($i);
+                }
+            }
+        }
+
+        $groups = [];
+        foreach (array_keys($rows) as $i) {
+            $groups[$find($i)][] = $i;
+        }
+
+        return array_values($groups);
+    }
+
+    /** The row a merged person is shown as: a current partner row first,
+     *  then any partner row, then TSD — the same pick for cards and table,
+     *  so a card opens the matching table row. */
+    private static function primaryOf(array $rows, array $group): int
+    {
+        return collect($group)->sortBy(fn ($i) => [empty($rows[$i]['partner']) ? 1 : 0, empty($rows[$i]['former']) ? 0 : 1, (string) $rows[$i]['id']])->first();
+    }
+
+    private static function teamsOf(array $parts): string
+    {
+        $current = array_filter($parts, fn ($r) => empty($r['former']));
+
+        return collect($current ?: $parts)->pluck('team')->filter()->unique()->join(' · ');
+    }
+
+    /**
+     * TSD + partner year tables as one: a person on several rosters (moved
+     * from TSD to a partner, or working two partners) is ONE row with their
+     * months added up. See personGroups().
      */
     public static function mergeYearFigures(array $tsd, array $partner): array
     {
-        $tsdRows = $tsd['rows']->values()->all();
-        $merged = [];
-        foreach ($partner['rows'] as $r) {
-            $hits = array_keys(array_filter($tsdRows, fn ($t) => (! $t['former'] || ! empty($t['removed'])) && self::sameName($t['name'], $r['name'])));
-            $partnerHits = $partner['rows']->filter(fn ($o) => self::sameName($o['name'], $r['name']))->count();
-            if (count($hits) === 1 && $partnerHits === 1) {
-                $t = $tsdRows[$hits[0]];
-                foreach ($r['months'] as $m => $v) {
-                    $r['months'][$m] = ['sales' => $v['sales'] + $t['months'][$m]['sales'], 'net' => $v['net'] + $t['months'][$m]['net']];
+        $all = array_merge($tsd['rows']->values()->all(), $partner['rows']->values()->all());
+        $rows = [];
+        foreach (self::personGroups($all) as $group) {
+            $parts = array_map(fn ($i) => $all[$i], $group);
+            $r = $all[self::primaryOf($all, $group)];
+            if (count($parts) > 1) {
+                foreach ($r['months'] as $m => $_) {
+                    $r['months'][$m] = [
+                        'sales' => array_sum(array_map(fn ($p) => $p['months'][$m]['sales'], $parts)),
+                        'net' => array_sum(array_map(fn ($p) => $p['months'][$m]['net'], $parts)),
+                    ];
                 }
-                $r['photo'] = $r['photo'] ?? $t['photo'];
-                $r['name'] = mb_strlen($t['name']) > mb_strlen($r['name']) ? $t['name'] : $r['name'];
-                unset($tsdRows[$hits[0]]);
+                $r['name'] = collect($parts)->pluck('name')->sortByDesc(fn ($n) => mb_strlen($n))->first();
+                $r['photo'] = collect($parts)->pluck('photo')->filter()->first();
+                $r['team'] = self::teamsOf($parts);
+                $r['former'] = collect($parts)->every(fn ($p) => ! empty($p['former']));
             }
-            $merged[] = $r;
+            $rows[] = $r;
         }
 
-        $rows = collect(array_merge(array_values($tsdRows), $merged))->map(function ($r) {
+        return self::withTotals(collect($rows), $tsd['sheetMonths']);
+    }
+
+    /**
+     * Cards as one per person (2026-11-20): same grouping as the table.
+     * The merged card keeps the primary row's id, adds the totals, and
+     * lists each system's share in 'parts'.
+     *
+     * @return array{0: Collection, 1: array} [rows, totals keyed by row id]
+     */
+    public static function mergeCards(Collection $rows, array $totals): array
+    {
+        $all = $rows->values()->all();
+        $zero = ['sales' => 0.0, 'net' => 0.0];
+        $out = collect();
+        foreach (self::personGroups($all) as $group) {
+            $r = $all[self::primaryOf($all, $group)];
+            if (count($group) > 1) {
+                $parts = array_map(fn ($i) => $all[$i], $group);
+                $r['parts'] = array_map(fn ($p) => ['label' => empty($p['partner']) ? 'TSD' : ($p['team'] ?: 'Partner')] + ($totals[$p['id']] ?? $zero), $parts);
+                $totals[$r['id']] = [
+                    'sales' => array_sum(array_column($r['parts'], 'sales')),
+                    'net' => array_sum(array_column($r['parts'], 'net')),
+                ];
+                $r['name'] = collect($parts)->pluck('name')->sortByDesc(fn ($n) => mb_strlen($n))->first();
+                $r['photo'] = collect($parts)->pluck('photo')->filter()->first();
+                $r['team'] = self::teamsOf($parts);
+            }
+            $out->push($r);
+        }
+
+        return [$out, $totals];
+    }
+
+    /** Year rows with their year totals, month totals, best months and heat scale. */
+    public static function withTotals(Collection $rows, array $sheetMonths): array
+    {
+        $rows = $rows->map(function ($r) {
             $r['year'] = [
                 'sales' => array_sum(array_column($r['months'], 'sales')),
                 'net' => array_sum(array_column($r['months'], 'net')),
@@ -265,7 +374,7 @@ class LiveTsaBoard
 
         return [
             'rows' => $rows,
-            'sheetMonths' => $tsd['sheetMonths'],
+            'sheetMonths' => $sheetMonths,
             'monthTotals' => $monthTotals,
             'yearTotal' => [
                 'sales' => array_sum(array_column($monthTotals, 'sales')),

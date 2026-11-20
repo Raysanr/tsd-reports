@@ -12,8 +12,14 @@
     </div>
     <div class="inline-flex rounded-lg ring-1 ring-line dark:ring-slate-700 bg-white dark:bg-slate-800 p-1 text-xs font-semibold uppercase tracking-wide" role="tablist" aria-label="Team">
         @foreach(['all' => 'All'] + collect($teams)->map(fn ($t) => $t['name'])->all() as $slug => $name)
-        <a href="{{ route('archive.live-tsa', ['team' => $slug, 'year' => $year]) }}" role="tab" aria-selected="{{ $team === $slug ? 'true' : 'false' }}"
+        <a href="{{ route('archive.live-tsa', ['team' => $slug, 'year' => $year, 'show' => $show]) }}" role="tab" aria-selected="{{ $team === $slug ? 'true' : 'false' }}"
            class="rounded-md px-3 py-1.5 {{ $team === $slug ? 'bg-primary text-white shadow-sm' : 'text-ink-muted dark:text-slate-300 hover:text-ink' }}">{{ $name }}</a>
+        @endforeach
+    </div>
+    <div class="inline-flex rounded-lg ring-1 ring-line dark:ring-slate-700 bg-white dark:bg-slate-800 p-1 text-xs font-semibold uppercase tracking-wide" role="tablist" aria-label="Show TSAs">
+        @foreach(['all' => 'All', 'active' => 'Active', 'former' => 'Former'] as $key => $label)
+        <a href="{{ route('archive.live-tsa', ['team' => $team, 'year' => $year, 'show' => $key]) }}" role="tab" aria-selected="{{ $show === $key ? 'true' : 'false' }}"
+           class="rounded-md px-3 py-1.5 {{ $show === $key ? 'bg-primary text-white shadow-sm' : 'text-ink-muted dark:text-slate-300 hover:text-ink' }}">{{ $label }}</a>
         @endforeach
     </div>
     <p class="ml-auto text-xs text-ink-muted dark:text-slate-400">Cards: this month so far — Gross Sales and Net Income from Expected Income (Summary Sales Report).</p>
@@ -45,10 +51,10 @@
                 <span class="inline-flex items-center gap-1.5"><span class="font-semibold text-emerald-700 dark:text-emerald-300">567.00</span> Net income</span>
             </div>
             <div class="flex items-center gap-1 rounded-lg ring-1 ring-line dark:ring-slate-700 bg-white dark:bg-slate-800 p-1 text-sm">
-                <a href="{{ route('archive.live-tsa', ['year' => $year - 1, 'team' => $team]) }}#by-month" class="rounded-md p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Previous year"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/></svg></a>
+                <a href="{{ route('archive.live-tsa', ['year' => $year - 1, 'team' => $team, 'show' => $show]) }}#by-month" class="rounded-md p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Previous year"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/></svg></a>
                 <span class="px-2 font-semibold tabular-nums">{{ $year }}</span>
                 @if($year < now()->year)
-                <a href="{{ route('archive.live-tsa', ['year' => $year + 1, 'team' => $team]) }}#by-month" class="rounded-md p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Next year"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg></a>
+                <a href="{{ route('archive.live-tsa', ['year' => $year + 1, 'team' => $team, 'show' => $show]) }}#by-month" class="rounded-md p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Next year"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg></a>
                 @else
                 <span class="rounded-md p-1.5 opacity-30"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg></span>
                 @endif
@@ -78,7 +84,7 @@
     </div>
 
     @if($figures['rows']->isEmpty())
-        @include('archive.partials.empty', ['title' => 'No active TSAs'])
+        @include('archive.partials.empty', ['title' => $show === 'former' ? 'No former TSAs' : 'No active TSAs'])
     @else
     <div class="overflow-x-auto">
         <table class="min-w-full text-sm">
@@ -108,7 +114,7 @@
                         <div class="flex items-center gap-2.5 whitespace-nowrap">
                             @include('archive.partials.avatar', ['name' => $r['name'], 'size' => 'sm', 'photo' => $r['photo'] ?? null])
                             <div>
-                                <div class="font-medium {{ $r['former'] ? 'text-ink-muted dark:text-slate-400' : '' }}">{{ $r['name'] }}@if($r['former'])<span class="ml-1.5 rounded-full bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400" title="Not on the current roster — figures from the Google Sheet">Former</span>@endif</div>
+                                <div class="font-medium {{ $r['former'] ? 'text-ink-muted dark:text-slate-400' : '' }}">{{ $r['name'] }}@if($r['former'])<span class="ml-1.5 rounded-full bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400" title="No longer on any TSD or partner roster">Former</span>@endif</div>
                                 <div class="text-[11px] text-ink-muted dark:text-slate-400">{{ $r['team'] }}</div>
                             </div>
                         </div>
