@@ -83,6 +83,43 @@ class CallEventControllerTest extends TestCase
         $this->assertSame(TsaShift::STATUS_WRAP_UP, $gemma->fresh()->status);
     }
 
+    /** Aguinaldo 2026-11-20: his phone also reported when the call
+     *  connected (6–22s after dialing). With [trigger_that_fired] sent, only
+     *  the Call Ended report ends the call. */
+    public function test_only_the_call_ended_trigger_ends_the_call(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemma->update(['api_token' => 'secret-token']);
+        $gemma->applyStatusChange(TsaShift::STATUS_CALLING);
+        $post = fn (string $trigger) => $this->postJson('/api/call-events', [
+            'api_token' => 'secret-token', 'phone_number' => '09171234567', 'direction' => 'Outgoing', 'trigger' => $trigger,
+        ])->assertOk();
+
+        $this->travel(15)->seconds();
+        $post('Call Active');
+        $this->assertSame(TsaShift::STATUS_CALLING, $gemma->fresh()->status);
+        $this->assertSame('Call Active', \App\Models\CallEvent::latest('id')->value('trigger'));
+
+        $this->travel(5)->minutes();
+        $post('Call Ended');
+        $this->assertSame(TsaShift::STATUS_WRAP_UP, $gemma->fresh()->status);
+    }
+
+    public function test_an_unsubstituted_trigger_keeps_the_old_behaviour(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemma->update(['api_token' => 'secret-token']);
+        $gemma->applyStatusChange(TsaShift::STATUS_CALLING);
+        $this->travel(30)->seconds();
+
+        $this->postJson('/api/call-events', [
+            'api_token' => 'secret-token', 'phone_number' => '09171234567', 'direction' => 'Outgoing', 'trigger' => '[trigger_that_fired]',
+        ])->assertOk();
+
+        $this->assertSame(TsaShift::STATUS_WRAP_UP, $gemma->fresh()->status);
+        $this->assertNull(\App\Models\CallEvent::latest('id')->value('trigger'));
+    }
+
     /** "Call Ended" fires for every call on the phone (2026-11-20). A call
      *  that rings in during the TSA's call, or a report for some other number,
      *  must not end their call — or Auto-call dials over it. */

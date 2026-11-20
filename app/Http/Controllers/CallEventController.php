@@ -127,9 +127,16 @@ class CallEventController extends Controller
         // TSA to Wrap Up while they were still on the phone, so Wrap Up ran
         // out and Auto-call dialed the next lead mid-call. A report within a
         // few seconds of going Calling is that start signal, not a hang-up.
+        // Safety net (Aguinaldo, 2026-11-20): his phone also reports when a
+        // call connects, 6–22s after dialing — past the window above — and
+        // that report ended Calling while he was still talking, so Auto-call
+        // dialed over the live call. Phones that send MacroDroid's
+        // [trigger_that_fired] say which trigger fired; only "Call Ended"
+        // ends the call. Phones that don't send it keep the old behaviour.
+        $trigger = self::triggerName($request->input('trigger'));
         $justStartedCalling = $tsa->status_changed_at
             && $tsa->status_changed_at->gt(now()->subSeconds(self::CALL_START_SECONDS));
-        if ($tsa->status === TsaShift::STATUS_CALLING && ! $justStartedCalling
+        if ($tsa->status === TsaShift::STATUS_CALLING && ! $justStartedCalling && self::isEndReport($trigger)
             && $this->isAboutTheCurrentCall($tsa, $data['direction'], $data['phone_number'])) {
             $tsa->applyStatusChange(TsaShift::STATUS_WRAP_UP);
         }
@@ -139,6 +146,7 @@ class CallEventController extends Controller
             'lead_id'          => $this->matchLead($tsa, $data['phone_number'])?->id,
             'phone_number'     => $data['phone_number'],
             'direction'        => $data['direction'],
+            'trigger'          => $trigger,
             'duration_seconds' => $data['duration_seconds'] ?? null,
             // The automation fires right as the call ends — trust the
             // phone's own timestamp when it sends one (it knows the real
@@ -160,6 +168,22 @@ class CallEventController extends Controller
      * Only a report about the call actually being made ends it: an outgoing
      * call, to the number of the lead they dialed (when both numbers are known).
      */
+    /** MacroDroid's [trigger_that_fired], or null when the phone doesn't
+     *  send it (or it arrived unsubstituted, still in brackets). */
+    public static function triggerName(mixed $raw): ?string
+    {
+        $raw = trim((string) $raw);
+
+        return $raw === '' || preg_match('/[\[\]{}]/', $raw) ? null : mb_substr($raw, 0, 60);
+    }
+
+    /** A report from the Call Ended trigger — or from a phone that doesn't
+     *  say which trigger fired (old setup: trusted as before). */
+    public static function isEndReport(?string $trigger): bool
+    {
+        return $trigger === null || (bool) preg_match('/end|disconnect|hang/i', $trigger);
+    }
+
     private function isAboutTheCurrentCall(TsaShift $tsa, string $direction, string $phoneNumber): bool
     {
         if ($direction !== 'outgoing') {

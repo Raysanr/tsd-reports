@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /** Ported from call-tracker (merged into one app 2026-08-12). */
 class CallEvent extends Model
 {
-    protected $fillable = ['tsa_id', 'lead_id', 'phone_number', 'direction', 'duration_seconds', 'occurred_at'];
+    protected $fillable = ['tsa_id', 'lead_id', 'phone_number', 'direction', 'trigger', 'duration_seconds', 'occurred_at'];
 
     protected $casts = [
         'occurred_at' => 'datetime',
