@@ -1055,4 +1055,42 @@ class ArchiveModuleTest extends TestCase
         \App\Support\ArchiveRosterSync::run();
         $this->assertSame('resigned', $joana->fresh()->status);
     }
+    public function test_tsd_teams_sit_under_team_sh_ecom(): void
+    {
+        $this->admin();
+        Department::query()->delete(); // start from the 2026-11-04 state
+        $ecom = Department::create(['name' => 'TEAM SH E-COM', 'archived_at' => now()]);
+        $closing = Department::create(['name' => 'CLOSING', 'team_slug' => 'sh-naturals', 'archived_at' => now()]);
+
+        (require database_path('migrations/2026_11_20_000003_nest_tsd_teams_under_sh_ecom.php'))->up();
+
+        $this->assertNull($ecom->fresh()->archived_at);
+        $this->assertSame('tsd', $ecom->fresh()->team_slug);
+        $this->assertSame($ecom->id, $closing->fresh()->parent_id);
+        $this->assertNull($closing->fresh()->archived_at);
+        $this->assertSame('SH Naturals', $closing->fresh()->name);
+
+        // A selling team the sync creates later also lands under SH E-COM.
+        \App\Support\ArchiveRosterSync::run();
+        $this->assertSame($ecom->id, Department::where('team_slug', 'eyecare')->value('parent_id'));
+        $this->assertSame(1, Department::where('team_slug', 'tsd')->count());
+    }
+
+    public function test_head_of_a_parent_team_stops_heading_its_sub_teams(): void
+    {
+        $this->admin();
+        $parent = Department::create(['name' => 'TEAM PARTNERS']);
+        $sub = Department::create(['name' => 'PEAK.CO', 'parent_id' => $parent->id]);
+        $lhiza = Employee::create(['full_name' => 'Lhiza', 'status' => 'active', 'department_id' => $sub->id]);
+        $sub->update(['head_employee_id' => $lhiza->id]);
+
+        $this->post(route('archive.departments.head', $parent), ['employee_id' => $lhiza->id])->assertRedirect();
+
+        $this->assertSame($lhiza->id, $parent->fresh()->head_employee_id);
+        $this->assertNull($sub->fresh()->head_employee_id);
+        // Chart: TEAM PARTNERS → Lhiza → PEAK.CO
+        $root = collect(\App\Support\OrgStructure::build()['roots'])->first(fn ($n) => $n['model']->is($parent));
+        $this->assertSame($lhiza->id, $root['children'][0]['model']->id);
+        $this->assertTrue($root['children'][0]['children'][0]['model']->is($sub));
+    }
 }

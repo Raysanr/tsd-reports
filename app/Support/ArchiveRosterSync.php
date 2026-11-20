@@ -73,21 +73,41 @@ class ArchiveRosterSync
         return ['created' => $created + $partners['created'], 'updated' => $updated + $partners['updated']];
     }
 
-    /** One Team per configured selling team, created on first sync.
+    public const PARENT_SLUG = 'tsd';
+
+    /** One Team per configured selling team, created on first sync under
+     *  TEAM SH E-COM (TSD's own telesales — reuses a hand-made top-level
+     *  "…E-COM…" team). Existing teams are never moved after that.
      *  @return array<string, int> slug => departments.id */
     public static function ensureTeams(): array
     {
+        $parent = self::parentTeam();
         $colors = ['amber', 'emerald', 'sky', 'violet', 'rose'];
         $ids = [];
         $i = 0;
         foreach (Teams::config() as $slug => $team) {
             $ids[$slug] = Department::firstOrCreate(
                 ['team_slug' => $slug],
-                ['name' => $team['name'], 'color' => $colors[$i % count($colors)], 'sort_order' => $i],
+                ['name' => $team['name'], 'parent_id' => $parent->id, 'color' => $colors[$i % count($colors)], 'sort_order' => $i],
             )->id;
             $i++;
         }
 
         return $ids;
+    }
+
+    public static function parentTeam(): Department
+    {
+        $parent = Department::where('team_slug', self::PARENT_SLUG)->first()
+            ?? Department::whereNull('parent_id')->whereNull('team_slug')
+                ->where(fn ($q) => $q->whereRaw('LOWER(name) LIKE ?', ['%e-com%'])->orWhereRaw('LOWER(name) LIKE ?', ['%ecom%']))
+                ->orderByRaw('archived_at IS NULL DESC')->orderBy('id')->first()
+            ?? new Department(['name' => 'TEAM SH E-COM', 'color' => 'sky', 'sort_order' => 80]);
+        if ($parent->team_slug !== self::PARENT_SLUG) {
+            $parent->team_slug = self::PARENT_SLUG;
+            $parent->save();
+        }
+
+        return $parent;
     }
 }

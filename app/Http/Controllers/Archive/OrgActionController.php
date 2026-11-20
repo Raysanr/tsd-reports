@@ -37,6 +37,10 @@ class OrgActionController extends Controller
 
         DB::transaction(function () use ($department, $new, $oldId) {
             $department->update(['head_employee_id' => $new->id]);
+            // Head of a parent team → no longer also head of its sub-teams
+            // (the chart can only place a person once; 2026-11-20).
+            Department::whereIn('id', array_diff($department->descendantIds(), [$department->id]))
+                ->where('head_employee_id', $new->id)->update(['head_employee_id' => null]);
             $changes = ['department_id' => $department->id];
             // a head can't report to someone inside their own team
             if ($new->manager_id && Employee::whereKey($new->manager_id)->where('department_id', $department->id)->exists()) {
