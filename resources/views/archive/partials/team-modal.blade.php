@@ -28,6 +28,17 @@
                 </select>
             </div>
             <div>
+                <span class="{{ $label }}">Show under these people on the Org Chart (optional)</span>
+                <p class="mb-2 text-xs text-ink-muted dark:text-slate-400">Instead of under the parent team's head. Tick two or more and they're drawn side by side, all connected to this team — e.g. an AI Engineer and QA above the supervisors.</p>
+                <div class="max-h-40 overflow-y-auto rounded-xl ring-1 ring-line dark:ring-slate-800 p-2 space-y-1">
+                    @foreach($employeeOptions as $e)
+                    <label class="flex items-center gap-2 rounded-lg px-2 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer">
+                        <input type="checkbox" name="under_employee_ids[]" value="{{ $e->id }}" class="rounded"> {{ $e->full_name }}
+                    </label>
+                    @endforeach
+                </div>
+            </div>
+            <div>
                 <span class="{{ $label }}">Color</span>
                 <div class="flex flex-wrap gap-2">
                     @foreach(\App\Models\Department::COLORS as $key => $cc)

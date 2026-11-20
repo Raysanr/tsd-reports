@@ -1155,4 +1155,40 @@ class ArchiveModuleTest extends TestCase
         $this->get(route('archive.departments'))->assertOk();
         $this->assertSame('active', $e->fresh()->status);
     }
+    public function test_teams_can_hang_under_several_people_drawn_as_one_group(): void
+    {
+        $this->admin();
+        TsaShift::query()->delete();
+        $tsd = Department::create(['name' => 'TELESALES DEPARTMENT']);
+        $allaisa = Employee::create(['full_name' => 'Allaisa', 'position' => 'Manager', 'status' => 'active', 'department_id' => $tsd->id]);
+        $tsd->update(['head_employee_id' => $allaisa->id]);
+        $raysan = Employee::create(['full_name' => 'Raysan', 'position' => 'AI Engineer', 'status' => 'active', 'department_id' => $tsd->id]);
+        $qa = Employee::create(['full_name' => 'QA Person', 'position' => 'QA', 'status' => 'active', 'department_id' => $tsd->id]);
+        $partners = Department::create(['name' => 'TEAM PARTNERS', 'parent_id' => $tsd->id]);
+        $ecom = Department::create(['name' => 'TEAM SH E-COM', 'parent_id' => $tsd->id]);
+
+        // set through the team form, like a user would
+        foreach ([$partners, $ecom] as $team) {
+            $this->put(route('archive.departments.update', $team), [
+                'name' => $team->name, 'color' => 'sky', 'parent_id' => $tsd->id, 'under_employee_ids' => [$raysan->id, $qa->id],
+            ])->assertSessionHasNoErrors();
+        }
+        $this->assertSame([$raysan->id, $qa->id], $partners->fresh()->under_employee_ids);
+
+        // TELESALES DEPARTMENT → Allaisa → [Raysan + QA] → both teams
+        $root = collect(\App\Support\OrgStructure::build()['roots'])->first(fn ($n) => $n['model']->is($tsd));
+        $head = $root['children'][0];
+        $this->assertSame($allaisa->id, $head['model']->id);
+        $this->assertCount(1, $head['children']);
+        $group = $head['children'][0];
+        $this->assertSame('group', $group['type']);
+        $this->assertEqualsCanonicalizing([$raysan->id, $qa->id], array_map(fn ($m) => $m['model']->id, $group['members']));
+        $this->assertEqualsCanonicalizing([$partners->id, $ecom->id], array_map(fn ($c) => $c['model']->id, $group['children']));
+
+        $this->get(route('archive.org-chart'))->assertOk()->assertSee('org-group', false)->assertSee('Raysan')->assertSee('TEAM SH E-COM');
+
+        // clearing the ticks puts the team back under the parent team's head
+        $this->put(route('archive.departments.update', $ecom), ['name' => $ecom->name, 'color' => 'sky', 'parent_id' => $tsd->id])->assertSessionHasNoErrors();
+        $this->assertNull($ecom->fresh()->under_employee_ids);
+    }
 }

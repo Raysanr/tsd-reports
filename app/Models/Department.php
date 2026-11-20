@@ -22,9 +22,9 @@ class Department extends Model
         'slate'   => ['dot' => 'bg-slate-500',   'soft' => 'bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-500/10 dark:text-slate-300 dark:ring-slate-500/30',   'bar' => 'from-slate-500 to-slate-400', 'band' => 'border-slate-500', 'ring' => 'ring-slate-500'],
     ];
 
-    protected $fillable = ['parent_id', 'name', 'code', 'team_slug', 'chart_x', 'chart_y', 'description', 'color', 'head_employee_id', 'sort_order', 'archived_at'];
+    protected $fillable = ['parent_id', 'name', 'code', 'team_slug', 'chart_x', 'chart_y', 'description', 'color', 'head_employee_id', 'under_employee_ids', 'sort_order', 'archived_at'];
 
-    protected $casts = ['archived_at' => 'datetime'];
+    protected $casts = ['archived_at' => 'datetime', 'under_employee_ids' => 'array'];
 
     public function parent(): BelongsTo
     {

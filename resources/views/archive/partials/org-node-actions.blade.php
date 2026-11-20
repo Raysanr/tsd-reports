@@ -51,7 +51,7 @@
         {!! $icon('M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M3 3h12m-.75 4.5H21') !!} Add a sub-team
     </button>
     <button type="button" class="{{ $row }}" data-modal-open="deptModal" data-title="Edit team" data-method="PUT" data-action="{{ route('archive.departments.update', $m) }}" data-self="{{ $m->id }}"
-            data-fill="{{ json_encode($m->only(['name', 'code', 'description', 'color', 'parent_id', 'head_employee_id', 'sort_order'])) }}">
+            data-fill="{{ json_encode($m->only(['name', 'code', 'description', 'color', 'parent_id', 'head_employee_id', 'sort_order']) + ['under_employee_ids[]' => $m->under_employee_ids ?? []]) }}">
         {!! $icon('M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z') !!} Edit team (name, color…)
     </button>
     <form method="POST" action="{{ route('archive.departments.archive', $m) }}" data-confirm="Archive team &quot;{{ $m->name }}&quot;? Its people stay in People; you can restore it from Archived Records.">

@@ -46,7 +46,7 @@
                     <button type="button" title="Edit" aria-label="Edit {{ $d->name }}"
                             data-modal-open="deptModal" data-title="Edit team" data-method="PUT"
                             data-action="{{ route('archive.departments.update', $d) }}"
-                            data-fill="{{ json_encode($d->only(['name', 'code', 'description', 'color', 'parent_id', 'head_employee_id', 'sort_order'])) }}"
+                            data-fill="{{ json_encode($d->only(['name', 'code', 'description', 'color', 'parent_id', 'head_employee_id', 'sort_order']) + ['under_employee_ids[]' => $d->under_employee_ids ?? []]) }}"
                             data-self="{{ $d->id }}"
                             class="rounded-lg p-2 text-ink-muted hover:bg-slate-100 hover:text-ink dark:hover:bg-slate-800 cursor-pointer">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/></svg>

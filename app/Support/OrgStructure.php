@@ -63,11 +63,55 @@ class OrgStructure
             $parent['t:' . $t->id] = $up === null ? null : (($h = $teamHead($up)) ? 'p:' . $h : 't:' . $up);
         }
 
+        // A team drawn under chosen people (under_employee_ids, 2026-11-20):
+        // one person → under them; several → under all of them together, as
+        // one group card (Allaisa → [Raysan + QA] → the supervisors' teams).
+        // A person sits in at most one group; anything that reported to a
+        // group member hangs under the whole group.
+        $groups = [];
+        $inGroup = [];
+        foreach ($teams as $t) {
+            $under = collect($t->under_employee_ids ?? [])->map(fn ($id) => (int) $id)
+                ->filter(fn ($id) => $people->has($id))->unique()->sort()->values()->all();
+            if (count($under) > 1) {
+                $key = 'g:' . implode('-', $under);
+                $clash = array_filter($under, fn ($id) => isset($inGroup[$id]) && $inGroup[$id] !== $key);
+                if (! $clash) {
+                    foreach ($under as $id) {
+                        $inGroup[$id] = $key;
+                    }
+                    $groups[$key] = $under;
+                    $parent['t:' . $t->id] = $key;
+                    continue;
+                }
+            }
+            if ($under) {
+                $parent['t:' . $t->id] = 'p:' . $under[0];
+            }
+        }
+        foreach ($groups as $key => $ids) {
+            // where the group sits: a member's own spot that isn't another member
+            $parent[$key] = collect($ids)->map(fn ($id) => $parent['p:' . $id])
+                ->first(fn ($up) => ! ($up && str_starts_with($up, 'p:') && in_array((int) substr($up, 2), $ids, true)));
+        }
+        foreach ($groups as $key => $ids) {
+            foreach ($ids as $id) {
+                $parent['p:' . $id] = 'grouped';
+            }
+        }
+        if ($groups) {
+            foreach ($parent as $k => $up) {
+                if ($up && str_starts_with($up, 'p:') && isset($inGroup[(int) substr($up, 2)])) {
+                    $parent[$k] = $inGroup[(int) substr($up, 2)];
+                }
+            }
+        }
+
         // break loops: walk up from every node; a node that reaches itself
         // falls back to its team (people) or the top (teams)
         foreach (array_keys($parent) as $key) {
             $seen = [$key => true];
-            for ($k = $parent[$key]; $k !== null && $k !== 'none'; $k = $parent[$k] ?? null) {
+            for ($k = $parent[$key]; $k !== null && $k !== 'none' && $k !== 'grouped'; $k = $parent[$k] ?? null) {
                 if (isset($seen[$k])) {
                     $parent[$key] = str_starts_with($key, 'p:') ? self::teamFallback($people[(int) substr($key, 2)], $teams) : null;
                     break;
@@ -78,12 +122,22 @@ class OrgStructure
 
         $children = [];
         foreach ($parent as $key => $up) {
-            if ($up !== 'none') {
+            if ($up !== 'none' && $up !== 'grouped') {
                 $children[$up ?? 'root'][] = $key;
             }
         }
 
-        $make = function (string $key) use (&$make, $children, $teams, $people, $headOf) {
+        $make = function (string $key) use (&$make, $children, $teams, $people, $headOf, $groups) {
+            if (str_starts_with($key, 'g:')) {
+                $members = array_map(fn ($id) => $make('p:' . $id), $groups[$key]);
+                $kids = array_map($make, $children[$key] ?? []);
+                usort($kids, fn ($a, $b) => [$a['type'] === 'person', $a['sortName']] <=> [$b['type'] === 'person', $b['sortName']]);
+
+                return [
+                    'type' => 'group', 'model' => null, 'members' => $members, 'isHead' => false, 'headOfTeam' => null,
+                    'sortName' => implode(' ', array_column($members, 'sortName')), 'children' => $kids,
+                ];
+            }
             $isTeam = str_starts_with($key, 't:');
             $model = $isTeam ? $teams[(int) substr($key, 2)] : $people[(int) substr($key, 2)];
             $kids = array_map($make, $children[$key] ?? []);

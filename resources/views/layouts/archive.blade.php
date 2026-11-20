@@ -261,6 +261,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 Object.entries(fill).forEach(([k, v]) => {
                     form.querySelectorAll(`[name="${k}"]`).forEach((el) => {
                         if (el.type === 'radio') el.checked = el.value === String(v ?? '');
+                        else if (el.type === 'checkbox') el.checked = Array.isArray(v) ? v.map(String).includes(el.value) : !!v;
                         else el.value = v ?? '';
                     });
                 });

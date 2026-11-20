@@ -81,8 +81,11 @@ class DepartmentController extends Controller
             'parent_id'        => ['nullable', 'integer', 'exists:departments,id'],
             'head_employee_id' => ['nullable', 'integer', 'exists:employees,id'],
             'sort_order'       => ['nullable', 'integer', 'min:0', 'max:9999'],
+            'under_employee_ids'   => ['nullable', 'array', 'max:10'],
+            'under_employee_ids.*' => ['integer', 'exists:employees,id'],
         ]);
         $data['sort_order'] = (int) ($data['sort_order'] ?? 0);
+        $data['under_employee_ids'] = array_values(array_unique(array_map('intval', $data['under_employee_ids'] ?? []))) ?: null;
 
         // A department can't sit under itself or anything below it.
         if ($department && ! empty($data['parent_id']) && in_array((int) $data['parent_id'], $department->descendantIds(), true)) {
