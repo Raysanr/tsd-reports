@@ -1005,4 +1005,41 @@ class ArchiveModuleTest extends TestCase
         $team->update(['head_employee_id' => $p->id]);
         $this->get(route('archive.org-chart'))->assertOk()->assertDontSee('Set up your org chart in 3 steps');
     }
+    public function test_partner_tsas_sync_into_team_partners_sub_teams(): void
+    {
+        $this->admin();
+        $this->artisan('migrate', ['--database' => \App\Support\DataSet::PARTNERS]);
+        $handMade = Department::create(['name' => 'TEAM PARTNERS']);
+        $tsd = TsaShift::create(['tsa_key' => 'MOVER', 'display_name' => 'Mover Person', 'team' => 'SH Naturals', 'active' => true]);
+        \App\Support\ArchiveRosterSync::run();
+        $tsd->delete();
+        \App\Support\ArchiveRosterSync::run(); // TSD side: Mover Person resigned
+        \App\Support\DataSet::onPartners(function () {
+            TsaShift::create(['tsa_key' => 'M&J:MOVER', 'display_name' => 'Mover Person', 'team' => 'M&J', 'active' => true]);
+            TsaShift::create(['tsa_key' => 'PEAK.CO:JOANA', 'display_name' => 'Joana Peak', 'team' => 'PEAK.CO', 'active' => true]);
+        });
+
+        \App\Support\ArchiveRosterSync::run();
+
+        $this->assertSame('partners', $handMade->fresh()->team_slug);
+        $peak = Department::where('team_slug', 'partner-peak-co')->first();
+        $mj = Department::where('team_slug', 'partner-mj')->first();
+        $this->assertSame($handMade->id, $peak->parent_id);
+        $joana = Employee::where('partner_tsa_key', 'PEAK.CO:JOANA')->first();
+        $this->assertSame($peak->id, $joana->department_id);
+        $this->assertSame('active', $joana->status);
+
+        $mover = Employee::where('partner_tsa_key', 'M&J:MOVER')->first();
+        $this->assertSame($tsd->id, $mover->tsa_shift_id); // same person, not a duplicate
+        $this->assertSame($mj->id, $mover->department_id);
+        $this->assertSame('active', $mover->status);
+        $this->assertSame(1, Employee::where('full_name', 'Mover Person')->count());
+
+        // Idempotent, and a TSA the partner stops sending is resigned.
+        \App\Support\ArchiveRosterSync::run();
+        $this->assertSame(1, Employee::where('partner_tsa_key', 'PEAK.CO:JOANA')->count());
+        \App\Support\DataSet::onPartners(fn () => TsaShift::withoutGlobalScopes()->where('tsa_key', 'PEAK.CO:JOANA')->forceDelete());
+        \App\Support\ArchiveRosterSync::run();
+        $this->assertSame('resigned', $joana->fresh()->status);
+    }
 }

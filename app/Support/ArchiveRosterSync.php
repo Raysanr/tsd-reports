@@ -67,7 +67,9 @@ class ArchiveRosterSync
             ActivityLogger::log('archive.roster.synced', null, "Synced people from TSA Management ({$created} added, {$updated} updated)");
         }
 
-        return ['created' => $created, 'updated' => $updated];
+        $partners = ArchivePartnerSync::run(); // PEAK.CO / M&J / MLC TSAs → TEAM PARTNERS
+
+        return ['created' => $created + $partners['created'], 'updated' => $updated + $partners['updated']];
     }
 
     /** One Team per configured selling team, created on first sync.

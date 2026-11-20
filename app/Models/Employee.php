@@ -16,7 +16,7 @@ class Employee extends Model
     ];
 
     protected $fillable = [
-        'department_id', 'manager_id', 'user_id', 'tsa_shift_id', 'full_name', 'position',
+        'department_id', 'manager_id', 'user_id', 'tsa_shift_id', 'partner_tsa_key', 'full_name', 'position',
         'email', 'phone', 'status', 'hired_at', 'left_at', 'notes', 'chart_x', 'chart_y', 'photo_path',
         'birthday', 'employment_status', 'shift_schedule', 'manual_status',
     ];
