@@ -68,7 +68,7 @@
                     @include('archive.partials.avatar', ['name' => $d->head->full_name, 'photo' => $d->head->photoUrl()])
                     <div class="min-w-0 flex-1">
                         <a href="{{ route('archive.people.show', $d->head) }}" class="block text-sm font-medium truncate hover:text-primary">{{ $d->head->full_name }}</a>
-                        <div class="text-xs text-ink-muted dark:text-slate-400">★ Head</div>
+                        <div class="text-xs text-ink-muted dark:text-slate-400">★ {{ $d->head->position ?: 'Head' }}</div>
                     </div>
                 @else
                     <span class="w-9 h-9 shrink-0 rounded-full border-2 border-dashed border-amber-300 dark:border-amber-500/50"></span>
