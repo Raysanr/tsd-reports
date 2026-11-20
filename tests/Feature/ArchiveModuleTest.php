@@ -1123,4 +1123,20 @@ class ArchiveModuleTest extends TestCase
         $this->assertTrue($root['children'][0]['headOfTeam']->is($parent));
         $this->assertTrue($root['children'][0]['children'][0]['model']->is($sub));
     }
+    public function test_reporting_to_the_parent_teams_head_shows_inside_your_own_team(): void
+    {
+        $this->admin();
+        $ecom = Department::create(['name' => 'TEAM SH E-COM']);
+        $closing = Department::create(['name' => 'CLOSING', 'parent_id' => $ecom->id]);
+        $gretchen = Employee::create(['full_name' => 'Gretchen', 'status' => 'active', 'department_id' => $ecom->id]);
+        $ecom->update(['head_employee_id' => $gretchen->id]);
+        $jhun = Employee::create(['full_name' => 'Jhun', 'status' => 'active', 'department_id' => $closing->id, 'manager_id' => $gretchen->id]);
+
+        $root = collect(\App\Support\OrgStructure::build()['roots'])->first(fn ($n) => $n['model']->is($ecom));
+        $head = $root['children'][0];
+        $this->assertSame($gretchen->id, $head['model']->id);
+        $this->assertCount(1, $head['children']); // only CLOSING, not Jhun beside it
+        $this->assertTrue($head['children'][0]['model']->is($closing));
+        $this->assertSame($jhun->id, $head['children'][0]['children'][0]['model']->id);
+    }
 }

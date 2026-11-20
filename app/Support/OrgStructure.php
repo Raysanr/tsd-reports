@@ -119,11 +119,30 @@ class OrgStructure
         if (isset($headOf[$p->id])) {
             return 't:' . $headOf[$p->id];
         }
-        if ($p->manager_id && $p->manager_id !== $p->id && $people->has($p->manager_id)) {
+        if ($p->manager_id && $p->manager_id !== $p->id && $people->has($p->manager_id)
+            && ! self::headsAParentTeam($p->manager_id, $p->department_id, $teams, $headOf)) {
             return 'p:' . $p->manager_id;
         }
 
         return self::teamFallback($p, $teams, $teamHead);
+    }
+
+    /** Reporting to the head of a team ABOVE your own (Gretchen heads TEAM
+     *  SH E-COM, Jhun is in its sub-team CLOSING): you're shown inside your
+     *  own team, which already sits under that head (2026-11-20). */
+    private static function headsAParentTeam(int $managerId, ?int $teamId, Collection $teams, array $headOf): bool
+    {
+        $managerTeam = $headOf[$managerId] ?? null;
+        if ($managerTeam === null || ! $teamId || ! $teams->has($teamId)) {
+            return false;
+        }
+        for ($t = $teams[$teamId]->parent_id, $i = 0; $t && $teams->has($t) && $i < 50; $t = $teams[$t]->parent_id, $i++) {
+            if ($t === $managerTeam) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static function teamFallback(Employee $p, Collection $teams, ?\Closure $teamHead = null): string
