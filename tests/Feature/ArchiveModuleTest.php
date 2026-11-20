@@ -449,6 +449,17 @@ class ArchiveModuleTest extends TestCase
         $this->post(route('archive.people.sync'))->assertRedirect();
         $this->assertSame('resigned', $e->fresh()->status);
         $this->assertNotNull($e->fresh()->left_at);
+
+        // restored in TSA Management (e.g. back from a partner) → active again
+        $shift->restore();
+        \App\Support\ArchiveRosterSync::run();
+        $this->assertSame('active', $e->fresh()->status);
+        $this->assertNull($e->fresh()->left_at);
+
+        // …but a person set Terminated by hand on People stays former
+        $e->update(['employment_status' => 'terminated', 'status' => 'resigned']);
+        \App\Support\ArchiveRosterSync::run();
+        $this->assertSame('resigned', $e->fresh()->status);
     }
 
     public function test_coaching_records_crud_and_acknowledge(): void
@@ -1069,6 +1080,11 @@ class ArchiveModuleTest extends TestCase
         $this->assertSame($ecom->id, $closing->fresh()->parent_id);
         $this->assertNull($closing->fresh()->archived_at);
         $this->assertSame('SH Naturals', $closing->fresh()->name);
+
+        // the names in use win over the built-in ones (renamed CLOSING)
+        \App\Models\TeamNameHistory::create(['slug' => 'sh-naturals', 'name' => 'CLOSING', 'effective_from' => today()->subMonth()]);
+        (require database_path('migrations/2026_11_20_000005_use_current_team_names_for_tsd_teams.php'))->up();
+        $this->assertSame('CLOSING', $closing->fresh()->name);
 
         // A selling team the sync creates later also lands under SH E-COM.
         \App\Support\ArchiveRosterSync::run();

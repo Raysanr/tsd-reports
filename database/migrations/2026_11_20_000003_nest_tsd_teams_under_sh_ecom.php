@@ -26,7 +26,7 @@ return new class extends Migration
             $team->update([
                 'parent_id'   => $parent->id,
                 'archived_at' => null,
-                'name'        => config("teams.{$team->team_slug}.name", $team->name),
+                'name'        => \App\Support\Teams::config()[$team->team_slug]['name'] ?? $team->name,
             ]);
         }
     }

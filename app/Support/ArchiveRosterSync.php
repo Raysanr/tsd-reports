@@ -58,6 +58,13 @@ class ArchiveRosterSync
             if ($removed && $employee->status !== 'resigned' && $employee->partner_tsa_key === null) {
                 $changes += ['status' => 'resigned', 'left_at' => $shift->deleted_at->toDateString()];
             }
+            // Back on TSA Management's roster (e.g. returned from a partner):
+            // active again — unless someone set them Resigned/Terminated by
+            // hand on People (2026-11-20; TSA Management is the source of truth).
+            if (! $removed && $employee->status === 'resigned'
+                && ! (Employee::EMPLOYMENT_STATUSES[$employee->employment_status]['former'] ?? false)) {
+                $changes += ['status' => 'active', 'left_at' => null];
+            }
             if ($changes) {
                 $employee->update($changes);
                 $updated++;
