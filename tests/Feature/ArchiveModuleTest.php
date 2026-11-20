@@ -1009,19 +1009,25 @@ class ArchiveModuleTest extends TestCase
     {
         $this->admin();
         $this->artisan('migrate', ['--database' => \App\Support\DataSet::PARTNERS]);
-        $handMade = Department::create(['name' => 'TEAM PARTNERS']);
-        $tsd = TsaShift::create(['tsa_key' => 'MOVER', 'display_name' => 'Mover Person', 'team' => 'SH Naturals', 'active' => true]);
+        $handMade = Department::create(['name' => 'TEAM PARTNERS']); // upper case: Postgres LIKE is case-sensitive
+        $mover = TsaShift::create(['tsa_key' => 'MOVER', 'display_name' => 'Mover Person', 'team' => 'SH Naturals', 'active' => true]);
+        $leaver = TsaShift::create(['tsa_key' => 'LEAVER', 'display_name' => 'Gemma Leaver', 'team' => 'SH Naturals', 'active' => true]);
         \App\Support\ArchiveRosterSync::run();
-        $tsd->delete();
-        \App\Support\ArchiveRosterSync::run(); // TSD side: Mover Person resigned
+        $mover->delete();
+        $leaver->delete();
         \App\Support\DataSet::onPartners(function () {
             TsaShift::create(['tsa_key' => 'M&J:MOVER', 'display_name' => 'Mover Person', 'team' => 'M&J', 'active' => true]);
             TsaShift::create(['tsa_key' => 'PEAK.CO:JOANA', 'display_name' => 'Joana Peak', 'team' => 'PEAK.CO', 'active' => true]);
+            // Removed on the partner side: must not become a person or move anyone.
+            TsaShift::create(['tsa_key' => 'M&J:Gemma', 'display_name' => 'Gemma Leaver', 'team' => 'M&J', 'active' => true])->delete();
+            TsaShift::create(['tsa_key' => 'M&J:Ghost', 'display_name' => 'Ghost Only', 'team' => 'M&J', 'active' => true])->delete();
         });
 
         \App\Support\ArchiveRosterSync::run();
+        \App\Support\ArchiveRosterSync::run(); // twice: the TSD sync must not re-resign the mover
 
         $this->assertSame('partners', $handMade->fresh()->team_slug);
+        $this->assertSame(1, Department::where('name', 'TEAM PARTNERS')->count());
         $peak = Department::where('team_slug', 'partner-peak-co')->first();
         $mj = Department::where('team_slug', 'partner-mj')->first();
         $this->assertSame($handMade->id, $peak->parent_id);
@@ -1029,15 +1035,22 @@ class ArchiveModuleTest extends TestCase
         $this->assertSame($peak->id, $joana->department_id);
         $this->assertSame('active', $joana->status);
 
-        $mover = Employee::where('partner_tsa_key', 'M&J:MOVER')->first();
-        $this->assertSame($tsd->id, $mover->tsa_shift_id); // same person, not a duplicate
-        $this->assertSame($mj->id, $mover->department_id);
-        $this->assertSame('active', $mover->status);
+        $moved = Employee::where('partner_tsa_key', 'M&J:MOVER')->first();
+        $this->assertSame($mover->id, $moved->tsa_shift_id); // same person, not a duplicate
+        $this->assertSame($mj->id, $moved->department_id);
+        $this->assertSame('active', $moved->status);
         $this->assertSame(1, Employee::where('full_name', 'Mover Person')->count());
 
-        // Idempotent, and a TSA the partner stops sending is resigned.
-        \App\Support\ArchiveRosterSync::run();
-        $this->assertSame(1, Employee::where('partner_tsa_key', 'PEAK.CO:JOANA')->count());
+        $gemma = Employee::where('tsa_shift_id', $leaver->id)->first();
+        $this->assertNull($gemma->partner_tsa_key);
+        $this->assertNotSame($mj->id, $gemma->department_id);
+        $this->assertSame(0, Employee::where('full_name', 'Ghost Only')->count());
+
+        // Team cards: "Under TEAM PARTNERS", resigned people hidden.
+        $this->get(route('archive.departments'))->assertOk()
+            ->assertSee('Under')->assertSee('Mover Person')->assertDontSee('Gemma Leaver');
+
+        // A TSA the partner stops sending is resigned.
         \App\Support\DataSet::onPartners(fn () => TsaShift::withoutGlobalScopes()->where('tsa_key', 'PEAK.CO:JOANA')->forceDelete());
         \App\Support\ArchiveRosterSync::run();
         $this->assertSame('resigned', $joana->fresh()->status);

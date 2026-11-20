@@ -22,7 +22,10 @@ class DepartmentController extends Controller
             ->orderBy('sort_order')->orderBy('name')->get();
 
         return view('archive.departments', [
-            'departments' => $departments,
+            // The cards (with parent + current members). NOT 'departments': that
+            // key is the employee modal's lean team list below, and sharing it
+            // made the cards show resigned people and lose "Under …" (2026-11-20).
+            'teamCards' => $departments,
             'parentOptions' => Department::active()->orderBy('name')->get(['id', 'name']),
             'employeeOptions' => Employee::current()->orderBy('full_name')->get(['id', 'full_name', 'department_id']),
             'q' => $q,

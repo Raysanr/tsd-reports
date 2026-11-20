@@ -4,16 +4,20 @@ namespace App\Support;
 
 use App\Models\Department;
 use App\Models\Employee;
+use App\Models\TsaShift;
 use App\Services\PartnerFeed;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Partner counterpart of ArchiveRosterSync (2026-11-20): every TSA synced
- * from PEAK.CO / M&J / MLC (partners database, PartnerSync) gets a linked
- * Employee under TEAM PARTNERS, in a sub-team named after its partner.
+ * Partner counterpart of ArchiveRosterSync (2026-11-20): every ACTIVE TSA
+ * synced from PEAK.CO / M&J / MLC (partners database, PartnerSync) gets a
+ * linked Employee under TEAM PARTNERS, in a sub-team named after its partner.
  *
- * Same rules as the TSA Management sync: only FILLS empty links, never
- * overwrites a hand-edited name/position/team, never auto-reinstates.
+ * - TSAs a partner removed (deleted_at set) are ignored — partner apps keep
+ *   TSD people they briefly listed, and those must not become partner staff.
+ * - A TSD TSA who left TSD and now sells for a partner is ONE person: their
+ *   existing record is linked and moved to the partner's sub-team.
+ * - Only fills empty links; never overwrites a hand-edited name/position.
  */
 class ArchivePartnerSync
 {
@@ -35,45 +39,41 @@ class ArchivePartnerSync
         }
 
         $teamIds = self::ensureTeams();
+        $partnerTeamIds = array_values($teamIds);
+        $active = $rows->whereNull('deleted_at')->keyBy('tsa_key');
         $existing = Employee::whereNotNull('partner_tsa_key')->get()->keyBy('partner_tsa_key');
-        $seen = [];
+        $leftTsd = self::leftTsd($existing->pluck('tsa_shift_id')->filter()->all());
         $created = $updated = 0;
 
-        foreach ($rows as $row) {
-            $seen[$row->tsa_key] = true;
+        foreach ($active as $key => $row) {
             $teamId = $teamIds[$row->team] ?? $teamIds[''];
-            $removed = $row->deleted_at !== null;
-            $employee = $existing->get($row->tsa_key);
-            $name = $row->display_name ?: substr($row->tsa_key, strlen((string) $row->team) + 1) ?: $row->tsa_key;
+            $employee = $existing->get($key);
+            $name = $row->display_name ?: substr($key, strlen((string) $row->team) + 1) ?: $key;
 
             if (! $employee && ($employee = self::movedFromTsd($name))) {
-                // A TSD TSA who moved to a partner: one person, not two.
-                $changes = ['partner_tsa_key' => $row->tsa_key];
-                if ($employee->status === 'resigned' && ! $removed) {
-                    $changes += ['department_id' => $teamId, 'status' => 'active', 'left_at' => null];
-                }
-                $employee->update($changes);
+                $employee->update(['partner_tsa_key' => $key]);
+                $leftTsd += self::leftTsd([$employee->tsa_shift_id]);
                 $updated++;
-                continue;
             }
 
             if (! $employee) {
                 Employee::create([
-                    'partner_tsa_key' => $row->tsa_key,
+                    'partner_tsa_key' => $key,
                     'department_id'   => $teamId,
                     'full_name'       => $name,
                     'position'        => 'Telesales Agent',
-                    'status'          => $removed ? 'resigned' : 'active',
+                    'status'          => 'active',
                     'hired_at'        => $row->created_at ? substr((string) $row->created_at, 0, 10) : null,
-                    'left_at'         => $removed ? substr((string) $row->deleted_at, 0, 10) : null,
                 ]);
                 $created++;
                 continue;
             }
 
             $changes = $employee->department_id === null ? ['department_id' => $teamId] : [];
-            if ($removed && $employee->status !== 'resigned') {
-                $changes += ['status' => 'resigned', 'left_at' => substr((string) $row->deleted_at, 0, 10)];
+            // Left TSD for this partner and not moved yet → into the partner team, active.
+            if ($employee->tsa_shift_id && isset($leftTsd[$employee->tsa_shift_id])
+                && ! in_array($employee->department_id, $partnerTeamIds, true)) {
+                $changes = ['department_id' => $teamId, 'status' => 'active', 'left_at' => null];
             }
             if ($changes) {
                 $employee->update($changes);
@@ -81,12 +81,18 @@ class ArchivePartnerSync
             }
         }
 
-        // Partner stopped sending a TSA (removed on their side) → Resigned.
+        // Partner no longer lists this TSA as active → unlink; resign unless still a TSD TSA.
         foreach ($existing as $key => $employee) {
-            if (! isset($seen[$key]) && $employee->status !== 'resigned') {
-                $employee->update(['status' => 'resigned', 'left_at' => today()->toDateString()]);
-                $updated++;
+            if ($active->has($key)) {
+                continue;
             }
+            $changes = ['partner_tsa_key' => null];
+            $stillTsd = $employee->tsa_shift_id && ! isset($leftTsd[$employee->tsa_shift_id]);
+            if (! $stillTsd && $employee->status !== 'resigned') {
+                $changes += ['status' => 'resigned', 'left_at' => today()->toDateString()];
+            }
+            $employee->update($changes);
+            $updated++;
         }
 
         if ($created || $updated) {
@@ -94,6 +100,14 @@ class ArchivePartnerSync
         }
 
         return ['created' => $created, 'updated' => $updated];
+    }
+
+    /** TSD roster ids (of $ids) that were removed from TSA Management.
+     *  @return array<int, true> */
+    private static function leftTsd(array $ids): array
+    {
+        return $ids === [] ? [] : TsaShift::withoutGlobalScopes()->whereIn('id', $ids)->whereNotNull('deleted_at')
+            ->pluck('id')->mapWithKeys(fn ($id) => [$id => true])->all();
     }
 
     /** The one TSD person (not yet partner-linked) with this name, or null
@@ -106,12 +120,15 @@ class ArchivePartnerSync
         return $matches->count() === 1 ? $matches->first() : null;
     }
 
-    /** TEAM PARTNERS (reuses a hand-made top-level "…Partners…" team) plus
-     *  one sub-team per partner. @return array<string, int> partner name => id ('' => parent) */
+    /** TEAM PARTNERS (reuses a hand-made top-level "…Partners…" team, any
+     *  case — Postgres LIKE is case-sensitive) plus one sub-team per partner.
+     *  @return array<string, int> partner name => id ('' => parent) */
     public static function ensureTeams(): array
     {
         $parent = Department::where('team_slug', self::PARENT_SLUG)->first()
-            ?? Department::whereNull('parent_id')->whereNull('team_slug')->where('name', 'like', '%partner%')->orderBy('id')->first()
+            ?? Department::whereNull('parent_id')->whereNull('team_slug')
+                ->whereRaw('LOWER(name) LIKE ?', ['%partner%'])
+                ->orderByRaw('archived_at IS NULL DESC')->orderBy('id')->first()
             ?? new Department(['name' => 'TEAM PARTNERS', 'color' => 'sky', 'sort_order' => 90]);
         if ($parent->team_slug !== self::PARENT_SLUG) {
             $parent->team_slug = self::PARENT_SLUG;
@@ -122,7 +139,8 @@ class ArchivePartnerSync
         $i = 0;
         foreach (PartnerFeed::partners() as $slug => $partner) {
             $team = Department::where('team_slug', "partner-{$slug}")->first()
-                ?? Department::where('parent_id', $parent->id)->whereNull('team_slug')->where('name', $partner['name'])->first()
+                ?? Department::where('parent_id', $parent->id)->whereNull('team_slug')
+                    ->whereRaw('LOWER(name) = ?', [mb_strtolower($partner['name'])])->first()
                 ?? new Department(['name' => $partner['name'], 'parent_id' => $parent->id, 'color' => $parent->color ?: 'sky', 'sort_order' => $i]);
             if ($team->team_slug !== "partner-{$slug}") {
                 $team->team_slug = "partner-{$slug}";

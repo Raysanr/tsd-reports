@@ -54,7 +54,8 @@ class ArchiveRosterSync
                 'department_id' => $employee->department_id === null ? $teamId : null,
                 'user_id'       => $employee->user_id === null ? ($usersByTsa[$shift->id] ?? null) : null,
             ]);
-            if ($removed && $employee->status !== 'resigned') {
+            // Moved to a partner: ArchivePartnerSync owns their status now.
+            if ($removed && $employee->status !== 'resigned' && $employee->partner_tsa_key === null) {
                 $changes += ['status' => 'resigned', 'left_at' => $shift->deleted_at->toDateString()];
             }
             if ($changes) {

@@ -17,17 +17,17 @@
         <svg class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
         <input type="search" name="q" value="{{ $q }}" placeholder="Search teams…" class="{{ $input }} pl-9">
     </div>
-    <span class="text-sm text-ink-muted dark:text-slate-400">{{ $departments->count() }} active</span>
+    <span class="text-sm text-ink-muted dark:text-slate-400">{{ $teamCards->count() }} active</span>
     @if($noTeam)<a href="{{ route('archive.org-chart') }}" class="ml-auto text-sm font-medium text-amber-700 dark:text-amber-300 hover:underline">{{ $noTeam }} {{ \Illuminate\Support\Str::plural('person', $noTeam) }} not in a team yet →</a>@endif
 </form>
 
-@if($departments->isEmpty())
+@if($teamCards->isEmpty())
 <div class="{{ $card }}">
     @include('archive.partials.empty', ['title' => $q ? 'No matches' : 'No teams yet', 'text' => $q ? 'Try a different search.' : 'Start with a top-level team (e.g. "TSD Telesales"), then add sub-teams underneath it.', 'icon' => 'M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M3 3h12m-.75 4.5H21'])
 </div>
 @else
 <div class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-5">
-    @foreach($departments as $d)
+    @foreach($teamCards as $d)
     @php $c = $d->colorClasses(); @endphp
     <article class="{{ $card }} group relative overflow-hidden transition hover:shadow-panel-lift">
         <div class="h-1.5 bg-gradient-to-r {{ $c['bar'] }}"></div>
