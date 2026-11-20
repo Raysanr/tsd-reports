@@ -1900,6 +1900,8 @@ class LeadController extends Controller
                     : null;
             }
             $tsaToFlip?->applyStatusChange(TsaShift::STATUS_CALLING);
+            // a click-to-call reserves the phone so Auto-call in another tab can't dial over it
+            \App\Support\AutoCall::holdPhone($tsaToFlip);
 
             // dialed_at (explicit request, 2026-08-22): a lighter, separate
             // signal from called_at — this fires on every click, well before

@@ -31,6 +31,51 @@ class AutoCall
      *  2026-10-26: calls start right after logging in, no extra click). */
     public const AVAILABLE_STATUSES = [TsaShift::STATUS_LOGIN, TsaShift::STATUS_READY_TO_CALL];
 
+    /** How long one dial keeps a phone reserved (see claimDialSlot()). */
+    public const DIAL_HOLD_SECONDS = 20;
+
+    /**
+     * One dial at a time per phone (TSA feedback 2026-11-20, Aguinaldo:
+     * "while I'm calling, a new dial starts and my call is cut"). Production
+     * showed two dials one second apart (14:48:03 and 14:48:04) — Call
+     * Tracker open in two tabs/devices, each running Auto-call, both seeing
+     * "Ready to Call" before either dial set Calling. The calling screen only
+     * guards its own tab, so the server now reserves the phone: the first
+     * request in a 20-second window gets the lead, any other gets nothing.
+     * A click-to-call reserves it too (holdPhone()).
+     */
+    public static function claimDialSlot(TsaShift $tsa): bool
+    {
+        return (bool) $tsa->dialer_host && \Illuminate\Support\Facades\Cache::add(self::slotKey($tsa), 1, self::DIAL_HOLD_SECONDS);
+    }
+
+    public static function releaseDialSlot(TsaShift $tsa): void
+    {
+        if ($tsa->dialer_host) {
+            \Illuminate\Support\Facades\Cache::forget(self::slotKey($tsa));
+        }
+    }
+
+    /** A call was just placed on this phone by hand — no auto-dial on top of it. */
+    public static function holdPhone(?TsaShift $tsa): void
+    {
+        if ($tsa?->dialer_host) {
+            \Illuminate\Support\Facades\Cache::put(self::slotKey($tsa), 1, self::DIAL_HOLD_SECONDS);
+        }
+    }
+
+    /** Another TSA sharing this phone (same Dialer address) is on a call on it. */
+    public static function phoneInUseByOther(TsaShift $tsa): bool
+    {
+        return (bool) $tsa->dialer_host && TsaShift::where('dialer_host', $tsa->dialer_host)
+            ->whereKeyNot($tsa->id)->where('status', TsaShift::STATUS_CALLING)->exists();
+    }
+
+    private static function slotKey(TsaShift $tsa): string
+    {
+        return 'auto-call-phone:' . mb_strtolower(trim($tsa->dialer_host));
+    }
+
     public static function enabled(): bool
     {
         return (bool) \App\Models\Setting::get('auto_call_enabled', false);

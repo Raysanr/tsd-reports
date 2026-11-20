@@ -221,4 +221,36 @@ class AutoCallTest extends TestCase
         $this->assertSame('2026-11-12 00:00:00', AutoCall::hotSince()->toDateTimeString());
         Carbon::setTestNow();
     }
+
+    /** Aguinaldo, 2026-11-20: two tabs both auto-dialed within a second and
+     *  the second dial cut the first call. Only one dial per phone at a time. */
+    public function test_two_browsers_never_get_a_lead_for_the_same_phone_at_once(): void
+    {
+        $gemma = $this->tsa('Gemma', 'ready_to_call');
+        $first = $this->lead($gemma);
+        $this->lead($gemma, ['pancake_created_at' => now()->addSecond()]);
+        $user = User::create(['name' => 'Gemma U', 'email' => 'g2@x.test', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+        $this->actingAs($user);
+
+        $this->getJson(route('calls.auto-call.next'))->assertJsonPath('lead.id', $first->id);   // tab 1
+        $this->getJson(route('calls.auto-call.next'))->assertJsonPath('lead', null);           // tab 2, same moment
+        $this->travel(AutoCall::DIAL_HOLD_SECONDS + 1)->seconds();
+        $this->getJson(route('calls.auto-call.next'))->assertJsonPath('lead.id', $first->id);   // still Ready later: allowed again
+    }
+
+    public function test_a_click_to_call_holds_auto_call_and_a_partner_on_the_same_phone_blocks_it(): void
+    {
+        $gemma = $this->tsa('Gemma', 'ready_to_call');
+        $lead = $this->lead($gemma);
+        $user = User::create(['name' => 'Gemma U', 'email' => 'g3@x.test', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        AutoCall::holdPhone($gemma); // what a manual click does
+        $this->actingAs($user)->getJson(route('calls.auto-call.next'))->assertJsonPath('lead', null);
+        \Illuminate\Support\Facades\Cache::flush();
+
+        $this->tsa('Julie', 'calling'); // same Dialer address, on a call
+        $this->getJson(route('calls.auto-call.next'))->assertJsonPath('lead', null);
+        $this->tsa('Julie', 'wrap_up');
+        $this->getJson(route('calls.auto-call.next'))->assertJsonPath('lead.id', $lead->id);
+    }
 }

@@ -16,7 +16,16 @@ class AutoCallController extends Controller
         if ($tsa) {
             \App\Console\Commands\ExpireWrapUpStatuses::expireIfDue($tsa->fresh());
         }
-        $lead = $tsa ? AutoCall::next($tsa->fresh()) : null;
+        $tsa = $tsa?->fresh();
+        $lead = null;
+        // only one browser may dial this phone at a time (see AutoCall::claimDialSlot())
+        if ($tsa && in_array($tsa->status, AutoCall::AVAILABLE_STATUSES, true) && AutoCall::isOn($tsa)
+            && ! AutoCall::phoneInUseByOther($tsa) && AutoCall::claimDialSlot($tsa)) {
+            $lead = AutoCall::next($tsa);
+            if (! $lead) {
+                AutoCall::releaseDialSlot($tsa);
+            }
+        }
 
         return response()->json(['lead' => $lead ? [
             'id' => $lead->id,
