@@ -129,7 +129,8 @@ class CallEventController extends Controller
         // few seconds of going Calling is that start signal, not a hang-up.
         $justStartedCalling = $tsa->status_changed_at
             && $tsa->status_changed_at->gt(now()->subSeconds(self::CALL_START_SECONDS));
-        if ($tsa->status === TsaShift::STATUS_CALLING && ! $justStartedCalling) {
+        if ($tsa->status === TsaShift::STATUS_CALLING && ! $justStartedCalling
+            && $this->isAboutTheCurrentCall($tsa, $data['direction'], $data['phone_number'])) {
             $tsa->applyStatusChange(TsaShift::STATUS_WRAP_UP);
         }
 
@@ -147,6 +148,34 @@ class CallEventController extends Controller
         ]);
 
         return response()->json(['success' => true, 'id' => $event->id, 'matched_lead_id' => $event->lead_id]);
+    }
+
+    /**
+     * TSA feedback again (2026-11-20, after the 5-second fix): "still on the
+     * call, a new dial starts and my call gets cut". The phone's "Call Ended"
+     * macro fires for EVERY call on the phone — a missed/declined call that
+     * rings in during the TSA's call, or a late report of the previous
+     * call, landed while they were Calling and was taken as their hang-up.
+     * Wrap Up then ran out, Auto-call dialed, and the new dial cut the call.
+     * Only a report about the call actually being made ends it: an outgoing
+     * call, to the number of the lead they dialed (when both numbers are known).
+     */
+    private function isAboutTheCurrentCall(TsaShift $tsa, string $direction, string $phoneNumber): bool
+    {
+        if ($direction !== 'outgoing') {
+            return false;
+        }
+        $reported = CallEvent::normalizePhone($phoneNumber);
+        if ($reported === null || $tsa->status_changed_at === null) {
+            return true;
+        }
+        $dialed = Lead::where('tsa_id', $tsa->id)
+            ->where('dialed_at', '>=', $tsa->status_changed_at->copy()->subSeconds(10))
+            ->orderByDesc('dialed_at')
+            ->first();
+        $dialedNumber = CallEvent::normalizePhone($dialed?->phone_number);
+
+        return $dialedNumber === null || $dialedNumber === $reported;
     }
 
     /** Best-effort match to one of THIS TSA's own leads by phone number —

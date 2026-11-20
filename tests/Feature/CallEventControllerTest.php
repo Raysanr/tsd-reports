@@ -83,6 +83,45 @@ class CallEventControllerTest extends TestCase
         $this->assertSame(TsaShift::STATUS_WRAP_UP, $gemma->fresh()->status);
     }
 
+    /** "Call Ended" fires for every call on the phone (2026-11-20). A call
+     *  that rings in during the TSA's call, or a report for some other number,
+     *  must not end their call — or Auto-call dials over it. */
+    public function test_only_a_report_about_the_lead_being_called_ends_the_call(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemma->update(['api_token' => 'secret-token']);
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        Lead::create([
+            'pancake_order_id' => '1', 'customer_name' => 'Juan', 'phone_number' => '+63 917 123 4567',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'dialed_at' => now(),
+        ]);
+        $gemma->applyStatusChange(TsaShift::STATUS_CALLING);
+        $this->travel(30)->seconds();
+        $post = fn ($number, $direction) => $this->postJson('/api/call-events', [
+            'api_token' => 'secret-token', 'phone_number' => $number, 'direction' => $direction,
+        ])->assertOk();
+
+        $post('09171234567', 'Missed');      // the customer's own number, but a missed call ringing in
+        $post('09998887777', 'Incoming');    // someone else calling in mid-call
+        $post('09998887777', 'Outgoing');    // a report for a different number
+        $this->assertSame(TsaShift::STATUS_CALLING, $gemma->fresh()->status);
+        $this->assertSame(3, \App\Models\CallEvent::count()); // still logged
+
+        $post('09171234567', 'Outgoing');    // the real hang-up of this call
+        $this->assertSame(TsaShift::STATUS_WRAP_UP, $gemma->fresh()->status);
+    }
+
+    public function test_a_report_with_no_usable_number_still_ends_the_call(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemma->update(['api_token' => 'secret-token']);
+        $gemma->applyStatusChange(TsaShift::STATUS_CALLING);
+        $this->travel(30)->seconds();
+
+        $this->postJson('/api/call-events', ['api_token' => 'secret-token', 'phone_number' => '[call_number]', 'direction' => 'Outgoing'])->assertOk();
+        $this->assertSame(TsaShift::STATUS_WRAP_UP, $gemma->fresh()->status);
+    }
+
     public function test_an_unsubstituted_duration_is_ignored(): void
     {
         TsaShift::where('tsa_key', 'Gemma')->first()->update(['api_token' => 'secret-token']);
