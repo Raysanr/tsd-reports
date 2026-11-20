@@ -33,11 +33,22 @@ class OrgStructure
             ->orderBy('sort_order')->orderBy('name')->get()->keyBy('id');
         $people = Employee::current()->with('department')->orderBy('full_name')->get()->keyBy('id');
 
-        // person id => team id they head (first active team wins)
+        // person id => team id they head. Heading several teams: the
+        // top-most one wins (head of TEAM PARTNERS and of its sub-team
+        // PEAK.CO sits under TEAM PARTNERS, above all its sub-teams).
+        $depth = function (int $id) use ($teams) {
+            $d = 0;
+            for ($p = $teams[$id]->parent_id; $p && $teams->has($p) && $d < 50; $p = $teams[$p]->parent_id) {
+                $d++;
+            }
+
+            return $d;
+        };
         $headOf = [];
         foreach ($teams as $t) {
-            if ($t->head_employee_id && $people->has($t->head_employee_id) && ! isset($headOf[$t->head_employee_id])) {
-                $headOf[$t->head_employee_id] = $t->id;
+            $h = $t->head_employee_id;
+            if ($h && $people->has($h) && (! isset($headOf[$h]) || $depth($t->id) < $depth($headOf[$h]))) {
+                $headOf[$h] = $t->id;
             }
         }
         $teamHead = fn (int $teamId) => ($h = $teams[$teamId]->head_employee_id ?? null) && ($headOf[$h] ?? null) === $teamId ? $h : null;

@@ -1093,4 +1093,18 @@ class ArchiveModuleTest extends TestCase
         $this->assertSame($lhiza->id, $root['children'][0]['model']->id);
         $this->assertTrue($root['children'][0]['children'][0]['model']->is($sub));
     }
+    public function test_head_of_parent_and_sub_team_shows_under_the_parent(): void
+    {
+        $this->admin();
+        $parent = Department::create(['name' => 'TEAM PARTNERS']);
+        $sub = Department::create(['name' => 'PEAK.CO', 'parent_id' => $parent->id]); // sorts before TEAM PARTNERS
+        $lhiza = Employee::create(['full_name' => 'Lhiza', 'status' => 'active', 'department_id' => $parent->id]);
+        $parent->update(['head_employee_id' => $lhiza->id]);
+        $sub->update(['head_employee_id' => $lhiza->id]); // left over from before
+
+        $root = collect(\App\Support\OrgStructure::build()['roots'])->first(fn ($n) => $n['model']->is($parent));
+        $this->assertSame($lhiza->id, $root['children'][0]['model']->id);
+        $this->assertTrue($root['children'][0]['headOfTeam']->is($parent));
+        $this->assertTrue($root['children'][0]['children'][0]['model']->is($sub));
+    }
 }
