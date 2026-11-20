@@ -62,6 +62,27 @@ class CallEventControllerTest extends TestCase
     }
 
     /** A magic variable that didn't substitute is dropped, not a rejection. */
+    /** The phone also reports the call starting, in the same second as the
+     *  dial (2026-11-20). That must not end the call, or Wrap Up runs out and
+     *  Auto-call dials the next lead while the TSA is still talking. */
+    public function test_a_report_right_after_dialing_does_not_end_the_call(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemma->update(['api_token' => 'secret-token']);
+        $gemma->applyStatusChange(TsaShift::STATUS_CALLING);
+
+        $post = fn () => $this->postJson('/api/call-events', [
+            'api_token' => 'secret-token', 'phone_number' => '09171234567', 'direction' => 'Outgoing',
+        ])->assertOk();
+
+        $post(); // call start, same second as the dial
+        $this->assertSame(TsaShift::STATUS_CALLING, $gemma->fresh()->status);
+
+        $this->travel(40)->seconds();
+        $post(); // the real hang-up
+        $this->assertSame(TsaShift::STATUS_WRAP_UP, $gemma->fresh()->status);
+    }
+
     public function test_an_unsubstituted_duration_is_ignored(): void
     {
         TsaShift::where('tsa_key', 'Gemma')->first()->update(['api_token' => 'secret-token']);
@@ -226,6 +247,7 @@ class CallEventControllerTest extends TestCase
         $gemma->update(['api_token' => 'shared-token']);
         $gemma->pairWith($mariel);
         $mariel->applyStatusChange(TsaShift::STATUS_CALLING);
+        $this->travel(30)->seconds();
 
         $this->postJson('/api/call-events', [
             'api_token'    => 'shared-token',

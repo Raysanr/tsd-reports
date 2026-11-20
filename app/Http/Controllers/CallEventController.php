@@ -27,6 +27,9 @@ use Illuminate\Http\Request;
  */
 class CallEventController extends Controller
 {
+    /** A phone report this soon after going Calling is the call starting. */
+    public const CALL_START_SECONDS = 5;
+
     public function store(Request $request)
     {
         // MacroDroid's own [call_type] magic variable reports "Incoming"/
@@ -117,7 +120,16 @@ class CallEventController extends Controller
         // Wrap Up itself no longer auto-expires (removed 2026-09-01,
         // explicit request) — from here the TSA stays in it until they
         // manually pick their next real status.
-        if ($tsa->status === TsaShift::STATUS_CALLING) {
+        // TSA feedback (2026-11-20): "still calling, but it auto-dials the
+        // next lead". The phone also reports when a call STARTS, in the same
+        // second as the dial click (195 of 357 events on 2026-11-20). When
+        // that report landed just after the click set Calling, it flipped the
+        // TSA to Wrap Up while they were still on the phone, so Wrap Up ran
+        // out and Auto-call dialed the next lead mid-call. A report within a
+        // few seconds of going Calling is that start signal, not a hang-up.
+        $justStartedCalling = $tsa->status_changed_at
+            && $tsa->status_changed_at->gt(now()->subSeconds(self::CALL_START_SECONDS));
+        if ($tsa->status === TsaShift::STATUS_CALLING && ! $justStartedCalling) {
             $tsa->applyStatusChange(TsaShift::STATUS_WRAP_UP);
         }
 
