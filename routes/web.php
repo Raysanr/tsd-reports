@@ -596,6 +596,10 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules', 'normal-pages
         Route::put('/teams/{department}', [\App\Http\Controllers\Archive\DepartmentController::class, 'update'])->name('departments.update');
         Route::patch('/teams/{department}/archive', [\App\Http\Controllers\Archive\DepartmentController::class, 'archive'])->name('departments.archive');
         Route::patch('/teams/{department}/restore', [\App\Http\Controllers\Archive\DepartmentController::class, 'restore'])->name('departments.restore');
+        Route::post('/teams/{department}/head', [\App\Http\Controllers\Archive\OrgActionController::class, 'setHead'])->name('departments.head');
+        Route::post('/teams/{department}/members', [\App\Http\Controllers\Archive\OrgActionController::class, 'addMembers'])->name('departments.members');
+        Route::patch('/people/{employee}/move', [\App\Http\Controllers\Archive\OrgActionController::class, 'move'])->name('people.move');
+        Route::patch('/people/{employee}/remove-from-team', [\App\Http\Controllers\Archive\OrgActionController::class, 'removeFromTeam'])->name('people.remove-from-team');
 
         Route::get('/people', [\App\Http\Controllers\Archive\EmployeeController::class, 'index'])->name('people');
         Route::post('/people', [\App\Http\Controllers\Archive\EmployeeController::class, 'store'])->name('people.store');

@@ -7,6 +7,7 @@ use App\Models\Department;
 use App\Models\Employee;
 use App\Models\OrgLink;
 use App\Support\ActivityLogger;
+use App\Support\OrgStructure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -14,6 +15,16 @@ class OrgChartController extends Controller
 {
     public function index(Request $request)
     {
+        // Default: the chart builds itself from Teams + People (2026-11-20).
+        // ?mode=arrange keeps the old freeform drag-and-draw canvas.
+        if ($request->input('mode') !== 'arrange') {
+            return view('archive.org-chart', OrgStructure::build() + [
+                'setup' => OrgStructure::setup(),
+                'departments' => Department::active()->orderBy('name')->get(['id', 'name', 'head_employee_id']),
+                'managerOptions' => Employee::current()->orderBy('full_name')->get(['id', 'full_name']),
+            ]);
+        }
+
         $view = $request->input('view') === 'people' ? 'people' : 'departments';
 
         $data = $view === 'people' ? $this->peopleTree() : $this->departmentTree();
@@ -24,7 +35,7 @@ class OrgChartController extends Controller
         $data['extraLinks'] = $links->where('kind', 'child')->map(fn ($l) => ['parent' => (string) $l->parent_id, 'child' => (string) $l->child_id])->values();
         $data['sideLinks'] = $links->where('kind', 'side')->map(fn ($l) => ['a' => (string) $l->parent_id, 'b' => (string) $l->child_id])->values();
 
-        return view('archive.org-chart', array_merge(
+        return view('archive.org-chart-arrange', array_merge(
             ['view' => $view, 'totalPeople' => Employee::current()->count()],
             $data,
         ));
@@ -196,7 +207,7 @@ class OrgChartController extends Controller
         ($view === 'people' ? Employee::query() : Department::query())->update(['chart_x' => null, 'chart_y' => null]);
         ActivityLogger::log('archive.orgchart.reset', null, 'Auto-arranged the ' . ($view === 'people' ? 'People' : 'Teams') . ' org chart');
 
-        return redirect()->route('archive.org-chart', ['view' => $view])->with('success', 'Chart auto-arranged.');
+        return redirect()->route('archive.org-chart', ['mode' => 'arrange', 'view' => $view])->with('success', 'Chart auto-arranged.');
     }
 
     private function departmentTree(): array

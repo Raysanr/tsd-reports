@@ -224,7 +224,7 @@ class ArchiveModuleTest extends TestCase
         $c($sales, $qa)->assertStatus(422);
         $this->patchJson(route('archive.org-chart.connect'), ['type' => 'department', 'parent_id' => $ops->id, 'child_id' => $ops->id])->assertStatus(422);
 
-        $this->get(route('archive.org-chart'))->assertOk()->assertSee('"parent":"' . $qa->id . '"', false);
+        $this->get(route('archive.org-chart', ['mode' => 'arrange']))->assertOk()->assertSee('"parent":"' . $qa->id . '"', false);
 
         // removing the main line promotes the extra one
         $this->patchJson(route('archive.org-chart.disconnect'), ['type' => 'department', 'parent_id' => $ops->id, 'child_id' => $sales->id])
@@ -612,7 +612,7 @@ class ArchiveModuleTest extends TestCase
         $this->assertSame([420, 180], [$d->fresh()->chart_x, $d->fresh()->chart_y]);
         $this->assertSame(0, $e->events()->where('type', '!=', 'hired')->count()); // moving a card isn't a lifecycle event
 
-        $this->get(route('archive.org-chart'))->assertOk()->assertSee('data-x="420" data-y="180"', false);
+        $this->get(route('archive.org-chart', ['mode' => 'arrange']))->assertOk()->assertSee('data-x="420" data-y="180"', false);
 
         $this->post(route('archive.org-chart.reset'), ['view' => 'departments'])->assertRedirect();
         $this->assertNull($d->fresh()->chart_x);
@@ -673,7 +673,7 @@ class ArchiveModuleTest extends TestCase
         // side links never change the tree or count as "also under"
         $this->assertSame($top->id, $tiktok->fresh()->parent_id);
         $this->assertNull($closing->fresh()->parent_id);
-        $this->get(route('archive.org-chart'))->assertOk()
+        $this->get(route('archive.org-chart', ['mode' => 'arrange']))->assertOk()
             ->assertSee('"a":"' . min($top->id, $tiktok->id) . '"', false)
             ->assertSee('data-side="left"', false);
 
@@ -909,5 +909,100 @@ class ArchiveModuleTest extends TestCase
         $this->assertSame($tsa->id, $e->tsa_shift_id);
         $this->assertSame($admin->id, $e->user_id);
         $this->get(route('archive.people'))->assertDontSee('e_tsa', false)->assertDontSee('App login');
+    }
+
+    public function test_org_chart_builds_itself_team_then_head_then_members(): void
+    {
+        $this->admin();
+        $root = Department::create(['name' => 'TSD Telesales', 'color' => 'sky']);
+        $closing = Department::create(['name' => 'Team Closing', 'color' => 'amber', 'parent_id' => $root->id]);
+        $boss = Employee::create(['full_name' => 'Boss Manager', 'status' => 'active', 'department_id' => $root->id]);
+        $root->update(['head_employee_id' => $boss->id]);
+        $head = Employee::create(['full_name' => 'Mariel Entanto', 'status' => 'active', 'department_id' => $closing->id, 'manager_id' => $boss->id]);
+        $closing->update(['head_employee_id' => $head->id]);
+        $tsa = Employee::create(['full_name' => 'Gemma Agent', 'status' => 'active', 'department_id' => $closing->id]); // no manager set
+        $loose = Employee::create(['full_name' => 'Loose Person', 'status' => 'active']);
+        // a loop in old data must not hang or hide anyone
+        $a = Employee::create(['full_name' => 'Loop A', 'status' => 'active', 'department_id' => $closing->id]);
+        $b = Employee::create(['full_name' => 'Loop B', 'status' => 'active', 'department_id' => $closing->id, 'manager_id' => $a->id]);
+        $a->update(['manager_id' => $b->id]);
+
+        $tree = \App\Support\OrgStructure::build();
+        $top = collect($tree['roots'])->first(fn ($n) => $n['model']->id === $root->id && $n['type'] === 'team');
+        $this->assertSame('TSD Telesales', $top['model']->name);
+        $this->assertSame($boss->id, $top['children'][0]['model']->id);                    // team → its head
+        $sub = collect($top['children'][0]['children'])->firstWhere('type', 'team');
+        $this->assertSame($closing->id, $sub['model']->id);                                 // sub-team under the parent's head
+        $mariel = $sub['children'][0];
+        $this->assertTrue($mariel['isHead']);                                               // head first, under her team (not under Boss)
+        $names = collect($mariel['children'])->map(fn ($n) => $n['model']->full_name);
+        $this->assertContains('Gemma Agent', $names);                                       // no manager → under the team head
+        $flat = function ($nodes) use (&$flat) {
+            return collect($nodes)->flatMap(fn ($n) => [$n['model']->id . $n['type'], ...$flat($n['children'])])->all();
+        };
+        $all = collect($flat($tree['roots']));
+        $this->assertTrue($all->contains($a->id . 'person') && $all->contains($b->id . 'person'));
+        $this->assertSame([$loose->id], $tree['unassigned']->pluck('id')->all());
+
+        $this->get(route('archive.org-chart'))->assertOk()
+            ->assertSeeInOrder(['TSD Telesales', 'Boss Manager', 'Team Closing', 'Mariel Entanto', 'Gemma Agent'])
+            ->assertSee('Not in a team yet')->assertSee('Loose Person');
+        $this->get(route('archive.org-chart', ['mode' => 'arrange']))->assertOk()->assertSee('Done arranging');
+    }
+
+    public function test_set_head_add_members_move_and_remove_from_team(): void
+    {
+        $this->admin();
+        $team = Department::create(['name' => 'Team Opening', 'color' => 'sky']);
+        $other = Department::create(['name' => 'QA', 'color' => 'rose']);
+        $old = Employee::create(['full_name' => 'Old Head', 'status' => 'active', 'department_id' => $team->id]);
+        $team->update(['head_employee_id' => $old->id]);
+        $tsa = Employee::create(['full_name' => 'Tsa One', 'status' => 'active', 'department_id' => $team->id, 'manager_id' => $old->id]);
+        $new = Employee::create(['full_name' => 'New Head', 'status' => 'active']);
+        $x = Employee::create(['full_name' => 'Xena', 'status' => 'active']);
+        $y = Employee::create(['full_name' => 'Yuri', 'status' => 'active']);
+        $gone = Employee::create(['full_name' => 'Gone', 'status' => 'resigned', 'left_at' => '2026-01-01']);
+
+        // make head: joins the team, old head's people now report to the new head
+        $this->post(route('archive.departments.head', $team), ['employee_id' => $new->id])->assertRedirect()->assertSessionHas('success');
+        $this->assertSame($new->id, $team->fresh()->head_employee_id);
+        $this->assertSame($team->id, $new->fresh()->department_id);
+        $this->assertSame($new->id, $tsa->fresh()->manager_id);
+        $this->post(route('archive.departments.head', $team), ['employee_id' => $gone->id])->assertSessionHasErrors('employee_id');
+
+        // add members: they join and report to the head
+        $this->post(route('archive.departments.members', $team), ['employee_ids' => [$x->id, $y->id]])->assertRedirect();
+        $this->assertSame([$team->id, $new->id], [$x->fresh()->department_id, $x->fresh()->manager_id]);
+        $this->assertSame($new->id, $y->fresh()->manager_id);
+        $this->post(route('archive.departments.members', $team), ['employee_ids' => []])->assertSessionHasErrors('employee_ids');
+
+        // move: new team + manager; a loop is refused
+        $this->patch(route('archive.people.move', $new), ['department_id' => $team->id, 'manager_id' => $x->id])->assertSessionHasErrors('manager_id');
+        $this->patch(route('archive.people.move', $x), ['department_id' => $other->id, 'manager_id' => null])->assertRedirect();
+        $this->assertSame([$other->id, null], [$x->fresh()->department_id, $x->fresh()->manager_id]);
+        // moving the head out of their team leaves the team without a head
+        $this->patch(route('archive.people.move', $new), ['department_id' => $other->id])->assertRedirect();
+        $this->assertNull($team->fresh()->head_employee_id);
+
+        // remove from team: reports move up, person stays in People
+        $this->post(route('archive.departments.head', $team), ['employee_id' => $old->id]);
+        $tsa->fresh()->update(['manager_id' => $old->id]);
+        $this->patch(route('archive.people.remove-from-team', $old))->assertRedirect();
+        $this->assertSame([null, null, 'active'], [$old->fresh()->department_id, $old->fresh()->manager_id, $old->fresh()->status]);
+        $this->assertNull($team->fresh()->head_employee_id);
+        $this->assertNull($tsa->fresh()->manager_id);
+
+        $this->get(route('archive.departments'))->assertOk()->assertSee('Pick head')->assertSee('+ Add member', false);
+    }
+
+    public function test_setup_guide_shows_until_teams_people_and_heads_exist(): void
+    {
+        $this->admin();
+        $this->get(route('archive.org-chart'))->assertSee('Set up your org chart in 3 steps');
+        $team = Department::create(['name' => 'Solo', 'color' => 'sky']);
+        $p = Employee::create(['full_name' => 'Only One', 'status' => 'active', 'department_id' => $team->id]);
+        $this->get(route('archive.departments'))->assertSee('1 team still without a head.');
+        $team->update(['head_employee_id' => $p->id]);
+        $this->get(route('archive.org-chart'))->assertOk()->assertDontSee('Set up your org chart in 3 steps');
     }
 }

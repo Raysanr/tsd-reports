@@ -52,7 +52,7 @@ class EmployeeController extends Controller
         return view('archive.people', [
             'employees' => $employees,
             'former' => $former,
-            'departments' => Department::active()->orderBy('name')->get(['id', 'name', 'color']),
+            'departments' => Department::active()->orderBy('name')->get(['id', 'name', 'color', 'head_employee_id']),
             'managerOptions' => Employee::current()->orderBy('full_name')->get(['id', 'full_name']),
             'tsaOptions' => TsaShift::orderBy('sort_order')->get(['id', 'tsa_key', 'display_name']),
             'userOptions' => User::orderBy('name')->get(['id', 'name', 'email']),
@@ -77,7 +77,7 @@ class EmployeeController extends Controller
             'live' => $live,
             'categories' => ArchiveDocument::CATEGORIES,
             // Edit-profile + upload modals on this page.
-            'departments' => Department::active()->orderBy('name')->get(['id', 'name']),
+            'departments' => Department::active()->orderBy('name')->get(['id', 'name', 'head_employee_id']),
             'managerOptions' => Employee::current()->whereKeyNot($employee->id)->orderBy('full_name')->get(['id', 'full_name']),
             'tsaOptions' => TsaShift::orderBy('sort_order')->get(['id', 'tsa_key', 'display_name']),
             'userOptions' => User::orderBy('name')->get(['id', 'name', 'email']),

@@ -17,6 +17,7 @@
 @endpush
 
 @section('content')
+@include('archive.partials.setup-guide')
 <form method="GET" class="mb-6 flex flex-wrap items-center gap-3">
     <div class="relative w-full sm:w-72">
         <svg class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>

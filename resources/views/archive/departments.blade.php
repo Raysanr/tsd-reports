@@ -1,22 +1,24 @@
 @extends('layouts.archive')
 @section('title', 'Teams')
-@section('subtitle', 'Telesales teams and sub-teams that power the org chart')
+@section('subtitle', 'Pick each team\'s head and members here — the Org Chart updates by itself')
 @php extract(\App\Support\ArchiveUi::classes()); @endphp
 
 @push('topbar-right')
-<button type="button" data-modal-open="deptModal" data-title="New team" data-action="{{ route('archive.departments.store') }}" data-method="POST" data-fill='{"color":"sky"}' class="{{ $btnPrimary }}">
+<button type="button" id="newTeamBtn" data-modal-open="deptModal" data-title="New team" data-action="{{ route('archive.departments.store') }}" data-method="POST" data-fill='{"color":"sky"}' class="{{ $btnPrimary }}">
     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
     New team
 </button>
 @endpush
 
 @section('content')
+@include('archive.partials.setup-guide')
 <form method="GET" class="mb-6 flex flex-wrap items-center gap-3">
     <div class="relative w-full sm:w-80">
         <svg class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
         <input type="search" name="q" value="{{ $q }}" placeholder="Search teams…" class="{{ $input }} pl-9">
     </div>
     <span class="text-sm text-ink-muted dark:text-slate-400">{{ $departments->count() }} active</span>
+    @if($noTeam)<a href="{{ route('archive.org-chart') }}" class="ml-auto text-sm font-medium text-amber-700 dark:text-amber-300 hover:underline">{{ $noTeam }} {{ \Illuminate\Support\Str::plural('person', $noTeam) }} not in a team yet →</a>@endif
 </form>
 
 @if($departments->isEmpty())
@@ -60,20 +62,53 @@
 
             @if($d->description)<p class="mt-3 text-sm text-ink-muted dark:text-slate-400 line-clamp-2">{{ $d->description }}</p>@endif
 
-            <div class="mt-4 flex items-center gap-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3">
+            {{-- Head: one click to pick or change (2026-11-20) --}}
+            <div class="mt-4 flex items-center gap-3 rounded-xl {{ $d->head ? 'bg-slate-50 dark:bg-slate-800/60' : 'bg-amber-50 dark:bg-amber-500/10 ring-1 ring-inset ring-amber-200 dark:ring-amber-500/30' }} p-3">
                 @if($d->head)
                     @include('archive.partials.avatar', ['name' => $d->head->full_name, 'photo' => $d->head->photoUrl()])
-                    <div class="min-w-0">
-                        <div class="text-sm font-medium truncate">{{ $d->head->full_name }}</div>
-                        <div class="text-xs text-ink-muted dark:text-slate-400">Team lead</div>
+                    <div class="min-w-0 flex-1">
+                        <a href="{{ route('archive.people.show', $d->head) }}" class="block text-sm font-medium truncate hover:text-primary">{{ $d->head->full_name }}</a>
+                        <div class="text-xs text-ink-muted dark:text-slate-400">★ Head</div>
                     </div>
                 @else
-                    <span class="w-9 h-9 rounded-full border-2 border-dashed border-slate-300 dark:border-slate-600"></span>
-                    <span class="text-sm text-ink-muted dark:text-slate-400">No head assigned</span>
+                    <span class="w-9 h-9 shrink-0 rounded-full border-2 border-dashed border-amber-300 dark:border-amber-500/50"></span>
+                    <span class="flex-1 text-sm font-medium text-amber-800 dark:text-amber-300">No head yet</span>
                 @endif
+                <button type="button" data-pick="head" data-team="{{ $d->id }}" data-current="{{ $d->head_employee_id }}" data-action="{{ route('archive.departments.head', $d) }}"
+                        data-title="{{ $d->head ? 'Change' : 'Pick' }} the head of {{ $d->name }}" data-hint="People already in this team are listed first."
+                        class="shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold {{ $d->head ? 'ring-1 ring-inset ring-line dark:ring-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50' : 'bg-primary text-white hover:bg-primary-dark' }} cursor-pointer">{{ $d->head ? 'Change' : 'Pick head' }}</button>
             </div>
 
-            <dl class="mt-4 grid grid-cols-3 divide-x divide-line dark:divide-slate-800 text-center">
+            {{-- Members --}}
+            @php $members = $d->employees->reject(fn ($e) => $e->id === $d->head_employee_id); @endphp
+            <div class="mt-4">
+                <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-semibold uppercase tracking-wider text-ink-muted dark:text-slate-400">Members · {{ $members->count() }}</span>
+                    @if($members->count() > 8)<a href="{{ route('archive.people', ['department' => $d->id]) }}" class="text-xs font-medium text-primary hover:underline">See all</a>@endif
+                </div>
+                @if($members->isEmpty())
+                    <p class="mt-2 text-sm text-ink-muted dark:text-slate-400">Nobody in this team yet.</p>
+                @else
+                <div class="mt-2 flex flex-wrap gap-1.5">
+                    @foreach($members->take(8) as $mm)
+                    <a href="{{ route('archive.people.show', $mm) }}" class="inline-flex items-center gap-1.5 rounded-full bg-slate-50 dark:bg-slate-800 py-0.5 pl-0.5 pr-2.5 text-xs font-medium ring-1 ring-inset ring-line dark:ring-slate-700 hover:ring-yellow-300" title="{{ $mm->full_name }}">
+                        @include('archive.partials.avatar', ['name' => $mm->full_name, 'size' => 'sm', 'photo' => $mm->photoUrl()]){{ \Illuminate\Support\Str::limit($mm->full_name, 18) }}
+                    </a>
+                    @endforeach
+                    @if($members->count() > 8)<span class="inline-flex items-center rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 text-xs font-semibold text-ink-muted">+{{ $members->count() - 8 }} more</span>@endif
+                </div>
+                @endif
+                <div class="mt-3 flex flex-wrap gap-2">
+                    <button type="button" data-pick="members" data-team="{{ $d->id }}" data-action="{{ route('archive.departments.members', $d) }}" data-title="Add people to {{ $d->name }}"
+                            data-hint="Tick everyone who belongs in this team. They'll report to {{ $d->head?->full_name ?? 'the team head' }}."
+                            class="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-2.5 py-1.5 text-xs font-semibold text-primary hover:bg-primary/20 cursor-pointer">+ Add member</button>
+                    <button type="button" data-modal-open="employeeModal" data-title="New person in {{ $d->name }}" data-action="{{ route('archive.people.store') }}" data-method="POST"
+                            data-fill="{{ json_encode(['status' => 'active', 'department_id' => $d->id, 'manager_id' => $d->head_employee_id]) }}"
+                            class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium ring-1 ring-inset ring-line dark:ring-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer">New person</button>
+                </div>
+            </div>
+
+            <dl class="mt-4 grid grid-cols-3 divide-x border-t border-line dark:border-slate-800 pt-3 divide-line dark:divide-slate-800 text-center">
                 <a href="{{ route('archive.people', ['department' => $d->id]) }}" class="hover:text-primary"><dt class="text-[11px] uppercase tracking-wider text-ink-muted dark:text-slate-400">People</dt><dd class="mt-0.5 text-lg font-bold tabular-nums">{{ $d->employees_count }}</dd></a>
                 <div><dt class="text-[11px] uppercase tracking-wider text-ink-muted dark:text-slate-400">Sub-teams</dt><dd class="mt-0.5 text-lg font-bold tabular-nums">{{ $d->children_count }}</dd></div>
                 <a href="{{ route('archive.documents', ['department' => $d->id]) }}" class="hover:text-primary"><dt class="text-[11px] uppercase tracking-wider text-ink-muted dark:text-slate-400">Files</dt><dd class="mt-0.5 text-lg font-bold tabular-nums">{{ $d->documents_count }}</dd></a>
@@ -84,62 +119,12 @@
 </div>
 @endif
 
-<dialog id="deptModal" class="{{ $modal }}">
-    <form method="POST" action="{{ route('archive.departments.store') }}">
-        @csrf
-        <input type="hidden" name="_method" value="POST" data-default="POST">
-        <div class="flex items-center justify-between border-b border-line dark:border-slate-800 px-6 py-4">
-            <h3 class="font-semibold" data-modal-title="New team">New team</h3>
-            <button type="button" data-modal-close class="rounded-lg p-1.5 text-ink-muted hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer" aria-label="Close"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M6 18L18 6M6 6l12 12"/></svg></button>
-        </div>
-        <div class="space-y-4 px-6 py-5 max-h-[70vh] overflow-y-auto">
-            <div class="grid grid-cols-3 gap-3">
-                <div class="col-span-2"><label class="{{ $label }}" for="d_name">Name *</label><input id="d_name" name="name" required maxlength="120" class="{{ $input }}" placeholder="e.g. Telesales Team A"></div>
-                <div><label class="{{ $label }}" for="d_code">Code</label><input id="d_code" name="code" maxlength="20" class="{{ $input }} uppercase" placeholder="TSA-A"></div>
-            </div>
-            <div>
-                <label class="{{ $label }}" for="d_parent">Parent team</label>
-                <select id="d_parent" name="parent_id" class="{{ $input }}">
-                    <option value="">— None (top level) —</option>
-                    @foreach($parentOptions as $p)<option value="{{ $p->id }}">{{ $p->name }}</option>@endforeach
-                </select>
-            </div>
-            <div>
-                <label class="{{ $label }}" for="d_head">Team lead</label>
-                <select id="d_head" name="head_employee_id" class="{{ $input }}">
-                    <option value="">— Not assigned —</option>
-                    @foreach($employeeOptions as $e)<option value="{{ $e->id }}">{{ $e->full_name }}</option>@endforeach
-                </select>
-            </div>
-            <div>
-                <span class="{{ $label }}">Color</span>
-                <div class="flex flex-wrap gap-2">
-                    @foreach(\App\Models\Department::COLORS as $key => $cc)
-                    <label class="cursor-pointer">
-                        <input type="radio" name="color" value="{{ $key }}" class="peer sr-only" @checked($key === 'sky')>
-                        <span class="block w-8 h-8 rounded-full {{ $cc['dot'] }} ring-2 ring-transparent ring-offset-2 ring-offset-white dark:ring-offset-slate-900 peer-checked:ring-slate-900 dark:peer-checked:ring-white peer-focus-visible:ring-yellow-500 transition" title="{{ ucfirst($key) }}"></span>
-                    </label>
-                    @endforeach
-                </div>
-            </div>
-            <div><label class="{{ $label }}" for="d_desc">Description</label><textarea id="d_desc" name="description" rows="3" maxlength="2000" class="{{ $input }}" placeholder="What this team is responsible for"></textarea></div>
-            <div class="w-32"><label class="{{ $label }}" for="d_sort">Sort order</label><input id="d_sort" type="number" min="0" name="sort_order" class="{{ $input }}" placeholder="0"></div>
-        </div>
-        <div class="flex justify-end gap-2 border-t border-line dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 px-6 py-3 rounded-b-2xl">
-            <button type="button" data-modal-close class="{{ $btnGhost }}">Cancel</button>
-            <button type="submit" class="{{ $btnPrimary }}">Save team</button>
-        </div>
-    </form>
-</dialog>
+@include('archive.partials.team-modal')
+@include('archive.partials.org-tools')
+@include('archive.partials.employee-modal')
 @endsection
 
 @push('scripts')
-<script>
-// A department can't be its own parent — hide itself from the parent list while editing.
-document.addEventListener('click', (e) => {
-    const opener = e.target.closest('[data-modal-open="deptModal"]');
-    if (!opener) return;
-    document.querySelectorAll('#d_parent option').forEach((o) => { o.hidden = !!opener.dataset.self && o.value === opener.dataset.self; });
-}, true);
-</script>
+<script>window.addEventListener('load', () => { if (location.hash === '#new') document.getElementById('newTeamBtn')?.click(); });</script>
 @endpush
+

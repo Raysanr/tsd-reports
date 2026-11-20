@@ -16,7 +16,7 @@ class DepartmentController extends Controller
         $q = trim((string) $request->input('q', ''));
 
         $departments = Department::active()
-            ->with(['parent', 'head'])
+            ->with(['parent', 'head', 'employees' => fn ($e) => $e->current()->orderBy('full_name')])
             ->withCount(['employees' => fn ($e) => $e->current(), 'documents', 'children'])
             ->when($q !== '', fn ($b) => $b->where(fn ($w) => $w->where('name', 'like', "%{$q}%")->orWhere('code', 'like', "%{$q}%")))
             ->orderBy('sort_order')->orderBy('name')->get();
@@ -26,6 +26,10 @@ class DepartmentController extends Controller
             'parentOptions' => Department::active()->orderBy('name')->get(['id', 'name']),
             'employeeOptions' => Employee::current()->orderBy('full_name')->get(['id', 'full_name', 'department_id']),
             'q' => $q,
+            // "Add a new person" (short form) on the team cards
+            'departments' => Department::active()->orderBy('name')->get(['id', 'name', 'head_employee_id']),
+            'managerOptions' => Employee::current()->orderBy('full_name')->get(['id', 'full_name']),
+            'noTeam' => Employee::current()->whereNull('department_id')->count(),
         ]);
     }
 
