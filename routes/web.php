@@ -591,6 +591,9 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules', 'normal-pages
         Route::get('/scoreboard', [\App\Http\Controllers\Archive\LiveTsaController::class, 'index'])->name('live-tsa');
         Route::get('/activity-log', [\App\Http\Controllers\Archive\ActivityLogController::class, 'index'])->name('activity-log');
 
+        Route::post('/undo/{token}', \App\Http\Controllers\Archive\UndoController::class)->name('undo');
+        Route::post('/people/bulk', [\App\Http\Controllers\Archive\PeopleBulkController::class, 'update'])->name('people.bulk');
+        Route::post('/people/{employee}/merge', [\App\Http\Controllers\Archive\PeopleMergeController::class, 'merge'])->name('people.merge');
         Route::get('/teams', [\App\Http\Controllers\Archive\DepartmentController::class, 'index'])->name('departments');
         Route::post('/teams', [\App\Http\Controllers\Archive\DepartmentController::class, 'store'])->name('departments.store');
         Route::put('/teams/{department}', [\App\Http\Controllers\Archive\DepartmentController::class, 'update'])->name('departments.update');

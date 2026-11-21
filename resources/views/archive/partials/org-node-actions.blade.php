@@ -54,7 +54,7 @@
             data-fill="{{ json_encode($m->only(['name', 'code', 'description', 'color', 'parent_id', 'head_employee_id', 'sort_order']) + ['under_employee_ids[]' => $m->under_employee_ids ?? []]) }}">
         {!! $icon('M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z') !!} Edit team (name, color…)
     </button>
-    <form method="POST" action="{{ route('archive.departments.archive', $m) }}" data-confirm="Archive team &quot;{{ $m->name }}&quot;? Its people stay in People; you can restore it from Archived Records.">
+    <form method="POST" action="{{ route('archive.departments.archive', $m) }}" data-confirm="{{ $m->archiveConfirm() }}">
         @csrf @method('PATCH')
         <button type="submit" class="{{ $row }} text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10">{!! $icon('M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z') !!} Archive team</button>
     </form>

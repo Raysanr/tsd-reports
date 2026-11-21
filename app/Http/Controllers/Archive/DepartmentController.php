@@ -57,8 +57,10 @@ class DepartmentController extends Controller
 
     public function archive(Department $department)
     {
+        $before = \App\Support\ArchiveUndo::capture($department, ['archived_at']);
         $department->update(['archived_at' => now()]);
         ActivityLogger::log('archive.department.archived', $department, "Archived team \"{$department->name}\"");
+        \App\Support\ArchiveUndo::offer("Archived team \"{$department->name}\"", $before);
 
         return back()->with('success', "Team \"{$department->name}\" moved to Archived Records.");
     }

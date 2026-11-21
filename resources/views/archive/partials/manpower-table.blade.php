@@ -66,6 +66,7 @@
         <table class="min-w-full text-sm" data-manpower>
             <thead class="bg-slate-50/80 dark:bg-slate-800/40">
                 <tr class="text-left text-[11px] font-semibold uppercase tracking-wider text-ink-muted dark:text-slate-400">
+                    <th class="w-10 pl-5 py-3"><input type="checkbox" data-bulk-all class="rounded cursor-pointer" aria-label="Select everyone in this table"></th>
                     <th class="px-5 py-3">Name</th>
                     <th class="px-3 py-3">Birthday</th>
                     <th class="px-3 py-3">Hiring date</th>
@@ -78,6 +79,7 @@
             <tbody class="divide-y divide-line dark:divide-slate-800">
                 @foreach($rows as $e)
                 <tr data-url="{{ route('archive.people.manpower', $e) }}" data-emp="{{ $e->id }}" class="transition-colors hover:bg-slate-50/70 dark:hover:bg-slate-800/30">
+                    <td class="w-10 pl-5 py-3"><input type="checkbox" data-bulk value="{{ $e->id }}" class="rounded cursor-pointer" aria-label="Select {{ $e->full_name }}"></td>
                     <td class="px-5 py-3">
                         <a href="{{ route('archive.people.show', $e) }}" class="group flex items-center gap-3">
                             @include('archive.partials.avatar', ['name' => $e->full_name, 'size' => 'sm', 'photo' => $e->photoUrl()])
@@ -103,6 +105,8 @@
     <ul class="md:hidden divide-y divide-line dark:divide-slate-800" data-manpower>
         @foreach($rows as $e)
         <li data-url="{{ route('archive.people.manpower', $e) }}" data-emp="{{ $e->id }}" class="space-y-3 p-4">
+            <div class="flex items-center gap-3">
+            <input type="checkbox" data-bulk value="{{ $e->id }}" class="rounded cursor-pointer" aria-label="Select {{ $e->full_name }}">
             <a href="{{ route('archive.people.show', $e) }}" class="flex items-center gap-3">
                 @include('archive.partials.avatar', ['name' => $e->full_name, 'size' => 'md', 'photo' => $e->photoUrl()])
                 <span class="min-w-0">
@@ -110,6 +114,7 @@
                     <span class="block truncate text-xs text-ink-muted dark:text-slate-400">{{ $e->department?->name ?? 'No team' }}</span>
                 </span>
             </a>
+            </div>
             <div class="grid grid-cols-2 gap-2">{!! $statusSelect($e) !!}{!! $shiftSelect($e) !!}</div>
             <dl class="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
                 <div><dt class="mb-1 text-ink-muted dark:text-slate-400">Birthday</dt><dd>{!! $dateBtn($e, 'birthday', $e->birthday, true) !!}</dd></div>

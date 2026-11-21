@@ -61,6 +61,23 @@ class Department extends Model
         return self::COLORS[$this->color] ?? self::COLORS['sky'];
     }
 
+    /** The warning shown before archiving: what drops off the Org Chart
+     *  (2026-11-21 — seven teams were archived without knowing). */
+    public function archiveConfirm(): string
+    {
+        $subIds = array_diff($this->descendantIds(), [$this->id]);
+        $subs = self::active()->whereIn('id', $subIds)->count();
+        $people = Employee::current()->whereIn('department_id', $this->descendantIds())->count();
+        $parts = array_filter([
+            $subs ? $subs . ' ' . \Illuminate\Support\Str::plural('sub-team', $subs) : null,
+            $people ? $people . ' ' . \Illuminate\Support\Str::plural('person', $people) : null,
+        ]);
+
+        return "Archive \"{$this->name}\"?\n\n"
+            . ($parts ? 'Its ' . implode(' and ', $parts) . ' will no longer show under it on the Org Chart. ' : '')
+            . 'Nobody is deleted, and you can Undo right after or restore it from Archived Records.';
+    }
+
     /** Ids of this department and every department below it — used to stop
      *  a department being moved under its own descendant (a cycle). */
     public function descendantIds(): array

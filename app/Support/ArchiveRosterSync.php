@@ -28,12 +28,17 @@ class ArchiveRosterSync
 
         $shifts = TsaShift::withoutGlobalScope(TsaRosterScope::class)->orderBy('sort_order')->get();
         $existing = Employee::whereNotNull('tsa_shift_id')->get()->keyBy('tsa_shift_id');
+        // roster rows of duplicates merged into someone else: leave them be
+        $merged = \Illuminate\Support\Facades\DB::table('employee_merged_links')->where('kind', 'tsa_shift')->pluck('value')->flip();
 
         foreach ($shifts as $shift) {
             $slug = $shift->team ? Teams::slugForOrderTeam($shift->team) : null;
             $teamId = $slug ? ($teamIds[$slug] ?? null) : null;
             $removed = $shift->deleted_at !== null;
             $employee = $existing->get($shift->id);
+            if (! $employee && $merged->has((string) $shift->id)) {
+                continue;
+            }
 
             if (! $employee) {
                 Employee::create([

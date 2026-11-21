@@ -31,6 +31,15 @@
 .org-c-head { background: linear-gradient(#fffbeb, #fff); }
 .dark .org-c-head { background: #111827; }
 .org-group { display: flex; gap: 12px; padding: 10px; border-radius: 1.25rem; outline: 2px dashed var(--org-line); outline-offset: 0; }
+.org-toggle { position: relative; z-index: 1; margin-top: 6px; border-radius: 999px; padding: 1px 10px; font-size: 11px; font-weight: 600; background: #fff; color: #64748b; outline: 1px solid var(--org-line); cursor: pointer; }
+.dark .org-toggle { background: #0f172a; color: #94a3b8; }
+.org-toggle:hover { color: #0f172a; outline-color: var(--color-yellow-500, #eab308); }
+.org-toggle-more { display: none; }
+li.is-collapsed > .org-toggle .org-toggle-less { display: none; }
+li.is-collapsed > .org-toggle .org-toggle-more { display: inline; }
+li.is-collapsed > ul { display: none; }
+#orgPanel:fullscreen { overflow: auto; border-radius: 0; }
+#orgPanel:fullscreen #orgViewport { height: calc(100vh - 60px) !important; }
 .org-c-compact { width: 13.5rem; padding: 8px 10px; border-radius: .75rem; border-top-width: 0 !important; border-left-width: 4px; border-left-style: solid; }
 .org-cell.is-found .org-c { outline: 3px solid var(--color-yellow-600, #CA8A04); outline-offset: 3px; }
 .org-canvas { background-image: radial-gradient(circle, rgba(148,163,184,.28) 1px, transparent 1px); background-size: 20px 20px; }
@@ -59,7 +68,7 @@
 @section('content')
 @include('archive.partials.setup-guide')
 
-<div class="rounded-2xl bg-white dark:bg-slate-900 ring-1 ring-line dark:ring-slate-800 shadow-panel overflow-hidden">
+<div id="orgPanel" class="rounded-2xl bg-white dark:bg-slate-900 ring-1 ring-line dark:ring-slate-800 shadow-panel overflow-hidden">
     <div class="no-print flex flex-wrap items-center justify-between gap-3 border-b border-line dark:border-slate-800 px-5 py-3 text-sm">
         <div class="flex flex-wrap items-center gap-3">
             <div class="relative w-64">
@@ -74,6 +83,9 @@
         </div>
         <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-muted dark:text-slate-400">
             <span><span class="font-semibold text-ink dark:text-slate-200">Click a card</span> to add, move, or pick a head</span>
+            <button type="button" data-collapse-all="1" class="font-semibold hover:text-primary cursor-pointer" title="Show only the teams and heads">Collapse all</button>
+            <button type="button" data-collapse-all="0" class="font-semibold hover:text-primary cursor-pointer">Expand all</button>
+            <button type="button" id="orgFullscreen" class="font-semibold hover:text-primary cursor-pointer">Full screen</button>
             <button type="button" onclick="window.print()" class="font-semibold hover:text-primary cursor-pointer">Print / PDF</button>
             <a href="{{ route('archive.org-chart', ['mode' => 'arrange']) }}" class="font-semibold hover:text-primary" title="The old canvas: drag cards and draw extra lines by hand">Arrange by hand (advanced)</a>
         </div>
@@ -128,6 +140,39 @@
 @push('scripts')
 <script>
 (function () {
+    // ---- collapse / expand branches (2026-11-21), remembered per browser
+    const COLLAPSE_KEY = 'archive.orgChart.collapsed';
+    const readCollapsed = () => { try { return new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]')); } catch (_) { return new Set(); } };
+    const saveCollapsed = () => {
+        const keys = [...document.querySelectorAll('#orgTree li.is-collapsed')].map((li) => li.dataset.branch);
+        try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(keys)); } catch (_) {}
+    };
+    const setCollapsed = (li, on) => {
+        li.classList.toggle('is-collapsed', on);
+        li.querySelector(':scope > [data-collapse]')?.setAttribute('aria-expanded', on ? 'false' : 'true');
+    };
+    readCollapsed().forEach((k) => { const li = document.querySelector(`#orgTree li[data-branch="${CSS.escape(k)}"]`); if (li) setCollapsed(li, true); });
+    document.addEventListener('click', (e) => {
+        const t = e.target.closest('[data-collapse]');
+        if (t) { e.stopPropagation(); const li = t.closest('li'); setCollapsed(li, !li.classList.contains('is-collapsed')); saveCollapsed(); return; }
+        const all = e.target.closest('[data-collapse-all]');
+        if (all) {
+            const on = all.dataset.collapseAll === '1';
+            // collapse all = keep every team and head visible, fold only the
+            // branches that hold nothing but members
+            document.querySelectorAll('#orgTree li[data-branch]').forEach((li) => {
+                if (!li.querySelector(':scope > [data-collapse]')) return;
+                const holdsMore = li.querySelector(':scope > ul > li[data-branch^="t"], :scope > ul > li[data-branch^="g"], :scope > ul > li[data-head]');
+                setCollapsed(li, on && !holdsMore);
+            });
+            saveCollapsed();
+        }
+    }, true);
+    document.getElementById('orgFullscreen')?.addEventListener('click', () => {
+        const panel = document.getElementById('orgPanel');
+        document.fullscreenElement ? document.exitFullscreen() : panel.requestFullscreen?.();
+    });
+
     // ---- card click → action menu
     const menu = document.getElementById('nodeActions');
     document.addEventListener('click', (e) => {

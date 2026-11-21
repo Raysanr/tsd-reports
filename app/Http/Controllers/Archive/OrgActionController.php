@@ -35,6 +35,11 @@ class OrgActionController extends Controller
             throw ValidationException::withMessages(['employee_id' => "{$new->full_name} is a former TSA and can't be a team head."]);
         }
 
+        $before = array_merge(
+            \App\Support\ArchiveUndo::capture(Department::whereIn('id', $department->descendantIds())->get(), ['head_employee_id']),
+            \App\Support\ArchiveUndo::capture($new, ['department_id', 'manager_id']),
+            \App\Support\ArchiveUndo::capture($oldId ? Employee::where('manager_id', $oldId)->get() : [], ['manager_id']),
+        );
         DB::transaction(function () use ($department, $new, $oldId) {
             $department->update(['head_employee_id' => $new->id]);
             // Head of a parent team → no longer also head of its sub-teams
@@ -54,6 +59,7 @@ class OrgActionController extends Controller
             }
         });
         ActivityLogger::log('archive.department.head', $department, "{$new->full_name} is now head of \"{$department->name}\"");
+        \App\Support\ArchiveUndo::offer("{$new->full_name} made head of {$department->name}", $before);
 
         return back()->with('success', "{$new->full_name} is now head of {$department->name}.");
     }
@@ -90,6 +96,10 @@ class OrgActionController extends Controller
         }
         $teamId = $data['department_id'] ?? null;
 
+        $before = array_merge(
+            \App\Support\ArchiveUndo::capture($employee, ['department_id', 'manager_id']),
+            \App\Support\ArchiveUndo::capture(Department::where('head_employee_id', $employee->id)->get(), ['head_employee_id']),
+        );
         DB::transaction(function () use ($employee, $teamId, $managerId) {
             // leaving a team they head → that team loses its head
             if ($employee->department_id !== $teamId) {
@@ -100,6 +110,7 @@ class OrgActionController extends Controller
         $team = $teamId ? Department::find($teamId)?->name : null;
         $msg = $employee->full_name . ' moved to ' . ($team ?? 'no team') . ($managerId ? ', reporting to ' . Employee::find($managerId)->full_name : '');
         ActivityLogger::log('archive.employee.moved', $employee, $msg);
+        \App\Support\ArchiveUndo::offer($msg, $before);
 
         return back()->with('success', $msg . '.');
     }
@@ -108,6 +119,11 @@ class OrgActionController extends Controller
     public function removeFromTeam(Employee $employee)
     {
         $team = $employee->department?->name;
+        $before = array_merge(
+            \App\Support\ArchiveUndo::capture($employee, ['department_id', 'manager_id']),
+            \App\Support\ArchiveUndo::capture(Department::where('head_employee_id', $employee->id)->get(), ['head_employee_id']),
+            \App\Support\ArchiveUndo::capture(Employee::where('manager_id', $employee->id)->get(), ['manager_id']),
+        );
         DB::transaction(function () use ($employee) {
             Department::where('head_employee_id', $employee->id)->update(['head_employee_id' => null]);
             // their direct reports move up to this person's own manager
@@ -115,6 +131,7 @@ class OrgActionController extends Controller
             $employee->update(['department_id' => null, 'manager_id' => null]);
         });
         ActivityLogger::log('archive.employee.moved', $employee, "Removed {$employee->full_name} from " . ($team ? "\"{$team}\"" : 'the chart'));
+        \App\Support\ArchiveUndo::offer("Removed {$employee->full_name} from " . ($team ?? 'the chart'), $before);
 
         return back()->with('success', "{$employee->full_name} removed from " . ($team ?? 'the chart') . '. They are still in People.');
     }

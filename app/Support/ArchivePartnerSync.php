@@ -42,12 +42,16 @@ class ArchivePartnerSync
         $partnerTeamIds = array_values($teamIds);
         $active = $rows->whereNull('deleted_at')->keyBy('tsa_key');
         $existing = Employee::whereNotNull('partner_tsa_key')->get()->keyBy('partner_tsa_key');
+        $merged = DB::table('employee_merged_links')->where('kind', 'partner_tsa')->pluck('value')->flip();
         $leftTsd = self::leftTsd($existing->pluck('tsa_shift_id')->filter()->all());
         $created = $updated = 0;
 
         foreach ($active as $key => $row) {
             $teamId = $teamIds[$row->team] ?? $teamIds[''];
             $employee = $existing->get($key);
+            if (! $employee && $merged->has($key)) {
+                continue; // a duplicate merged into someone else
+            }
             $name = $row->display_name ?: substr($key, strlen((string) $row->team) + 1) ?: $key;
 
             if (! $employee && ($employee = self::movedFromTsd($name))) {

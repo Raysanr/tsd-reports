@@ -1211,4 +1211,94 @@ class ArchiveModuleTest extends TestCase
         $this->assertSame(3, $teams[$closing->id]->people_total);
         $this->get(route('archive.org-chart'))->assertOk()->assertSee('5 people');
     }
+    public function test_archiving_a_team_warns_what_drops_off_and_can_be_undone(): void
+    {
+        $this->admin();
+        TsaShift::query()->delete();
+        $parent = Department::create(['name' => 'TEAM SH E-COM']);
+        $sub = Department::create(['name' => 'CLOSING', 'parent_id' => $parent->id]);
+        Employee::create(['full_name' => 'Closer', 'status' => 'active', 'department_id' => $sub->id]);
+
+        $this->assertStringContainsString('1 sub-team and 1 person', $parent->archiveConfirm());
+
+        $this->from(route('archive.departments'))->patch(route('archive.departments.archive', $parent))->assertSessionHas('undo');
+        $this->assertNotNull($parent->fresh()->archived_at);
+        $token = session('undo')['token'];
+
+        $this->post(route('archive.undo', $token))->assertSessionHas('success');
+        $this->assertNull($parent->fresh()->archived_at);
+        // a token works once
+        $this->post(route('archive.undo', $token))->assertSessionHas('error');
+    }
+
+    public function test_bulk_move_reports_to_and_status_with_undo(): void
+    {
+        $this->admin();
+        TsaShift::query()->delete();
+        $team = Department::create(['name' => 'OPENING']);
+        $boss = Employee::create(['full_name' => 'Boss', 'status' => 'active']);
+        $a = Employee::create(['full_name' => 'Ann', 'status' => 'active']);
+        $b = Employee::create(['full_name' => 'Ben', 'status' => 'active']);
+
+        $this->post(route('archive.people.bulk'), ['ids' => [$a->id, $b->id], 'action' => 'team', 'department_id' => $team->id])->assertSessionHasNoErrors();
+        $this->assertSame($team->id, $a->fresh()->department_id);
+        $this->assertSame($team->id, $b->fresh()->department_id);
+        $this->post(route('archive.undo', session('undo')['token']));
+        $this->assertNull($a->fresh()->department_id);
+
+        // reports to: nobody may end up reporting to themselves
+        $boss->update(['manager_id' => $a->id]);
+        $this->post(route('archive.people.bulk'), ['ids' => [$a->id, $b->id], 'action' => 'manager', 'manager_id' => $boss->id])->assertSessionHasNoErrors();
+        $this->assertNull($a->fresh()->manager_id); // skipped: Boss reports to Ann
+        $this->assertSame($boss->id, $b->fresh()->manager_id);
+
+        $this->post(route('archive.people.bulk'), ['ids' => [$a->id], 'action' => 'status', 'status' => 'resigned']);
+        $this->assertSame('resigned', $a->fresh()->status);
+        $this->assertNotNull($a->fresh()->left_at);
+        $this->post(route('archive.people.bulk'), ['ids' => [$a->id], 'action' => 'status', 'status' => 'active']);
+        $this->assertSame('active', $a->fresh()->status);
+        $this->assertNull($a->fresh()->left_at);
+
+        $this->get(route('archive.people'))->assertOk()->assertSee('data-bulk', false);
+    }
+
+    public function test_merging_a_duplicate_moves_everything_and_the_sync_does_not_bring_it_back(): void
+    {
+        $this->admin();
+        $this->artisan('migrate', ['--database' => \App\Support\DataSet::PARTNERS]);
+        \App\Support\DataSet::onPartners(function () {
+            TsaShift::create(['tsa_key' => 'M&J:Sh', 'display_name' => 'SH Mari', 'team' => 'M&J', 'active' => true]);
+            TsaShift::create(['tsa_key' => 'PEAK.CO:Sh', 'display_name' => 'SH Mari', 'team' => 'PEAK.CO', 'active' => true]);
+        });
+        \App\Support\ArchiveRosterSync::run();
+        $keep = Employee::firstWhere('partner_tsa_key', 'M&J:Sh');
+        $dup = Employee::firstWhere('partner_tsa_key', 'PEAK.CO:Sh');
+        $dup->update(['email' => 'mari@example.test']);
+        $report = Employee::create(['full_name' => 'Reports To Dup', 'status' => 'active', 'manager_id' => $dup->id]);
+        $team = Department::create(['name' => 'Led by dup', 'head_employee_id' => $dup->id]);
+
+        $this->post(route('archive.people.merge', $keep), ['duplicate_id' => $dup->id])->assertRedirect(route('archive.people.show', $keep));
+
+        $this->assertNull(Employee::find($dup->id));
+        $this->assertSame('mari@example.test', $keep->fresh()->email);
+        $this->assertSame($keep->id, $report->fresh()->manager_id);
+        $this->assertSame($keep->id, $team->fresh()->head_employee_id);
+
+        \App\Support\ArchiveRosterSync::run();
+        $this->assertSame(1, Employee::where('full_name', 'SH Mari')->count());
+        $this->get(route('archive.people.show', $keep))->assertOk()->assertSee('Merge a duplicate');
+    }
+
+    public function test_sidebar_has_three_groups_and_the_chart_can_collapse(): void
+    {
+        $this->admin();
+        $team = Department::create(['name' => 'Folded']);
+        $head = Employee::create(['full_name' => 'Head Person', 'status' => 'active', 'department_id' => $team->id]);
+        $team->update(['head_employee_id' => $head->id]);
+        Employee::create(['full_name' => 'Member Person', 'status' => 'active', 'department_id' => $team->id]);
+
+        $this->get(route('archive.org-chart'))->assertOk()
+            ->assertSee('data-collapse', false)->assertSee('Collapse all')->assertSee('Full screen')
+            ->assertSeeInOrder(['Overview', 'Team', 'Org Chart', 'Teams', 'People', 'Performance', 'Files', 'Activity Log']);
+    }
 }

@@ -57,5 +57,64 @@
 </section>
 @endif
 
+{{-- Bulk actions (2026-11-21): tick people, then act on all of them at once. --}}
+<form id="bulkBar" method="POST" action="{{ route('archive.people.bulk') }}" hidden
+      class="no-print fixed bottom-5 left-1/2 z-[60] -translate-x-1/2 flex flex-wrap items-center gap-2 rounded-2xl bg-white dark:bg-slate-900 px-4 py-3 shadow-2xl ring-1 ring-line dark:ring-slate-700 text-sm">
+    @csrf
+    <div data-bulk-ids></div>
+    <span class="font-semibold"><span data-bulk-count>0</span> selected</span>
+    <select name="action" data-bulk-action class="{{ $input }} w-auto py-1.5">
+        <option value="team">Move to team…</option>
+        <option value="manager">Set "Reports to"…</option>
+        <option value="status">Set status…</option>
+    </select>
+    <select name="department_id" data-bulk-for="team" class="{{ $input }} w-auto py-1.5">
+        <option value="">— No team —</option>
+        @foreach($departments as $d)<option value="{{ $d->id }}">{{ $d->name }}</option>@endforeach
+    </select>
+    <select name="manager_id" data-bulk-for="manager" class="{{ $input }} w-auto py-1.5" hidden disabled>
+        <option value="">— Nobody —</option>
+        @foreach($managerOptions as $m)<option value="{{ $m->id }}">{{ $m->full_name }}</option>@endforeach
+    </select>
+    <select name="status" data-bulk-for="status" class="{{ $input }} w-auto py-1.5" hidden disabled>
+        <option value="active">Active</option>
+        <option value="resigned">Resigned (Former)</option>
+    </select>
+    <button type="submit" class="{{ $btnPrimary }} py-1.5">Apply</button>
+    <button type="button" data-bulk-clear class="{{ $btnGhost }} py-1.5">Clear</button>
+</form>
+
 @include('archive.partials.employee-modal')
 @endsection
+
+@push('scripts')
+<script>
+(function () {
+    const bar = document.getElementById('bulkBar');
+    const boxes = () => [...document.querySelectorAll('[data-bulk]')];
+    const refresh = () => {
+        const ids = [...new Set(boxes().filter((b) => b.checked).map((b) => b.value))];
+        bar.hidden = ids.length === 0;
+        bar.querySelector('[data-bulk-count]').textContent = ids.length;
+        bar.querySelector('[data-bulk-ids]').replaceChildren(...ids.map((id) => Object.assign(document.createElement('input'), { type: 'hidden', name: 'ids[]', value: id })));
+    };
+    document.addEventListener('change', (e) => {
+        if (e.target.matches('[data-bulk-all]')) {
+            e.target.closest('table').querySelectorAll('[data-bulk]').forEach((b) => { b.checked = e.target.checked; });
+        }
+        if (e.target.matches('[data-bulk]')) {
+            // the same person appears in the table and the phone list: keep both in step
+            document.querySelectorAll(`[data-bulk][value="${e.target.value}"]`).forEach((b) => { b.checked = e.target.checked; });
+        }
+        if (e.target.matches('[data-bulk-action]')) {
+            bar.querySelectorAll('[data-bulk-for]').forEach((s) => { const on = s.dataset.bulkFor === e.target.value; s.hidden = !on; s.disabled = !on; });
+        }
+        if (e.target.matches('[data-bulk], [data-bulk-all]')) refresh();
+    });
+    bar.querySelector('[data-bulk-clear]').addEventListener('click', () => {
+        document.querySelectorAll('[data-bulk], [data-bulk-all]').forEach((b) => { b.checked = false; });
+        refresh();
+    });
+})();
+</script>
+@endpush

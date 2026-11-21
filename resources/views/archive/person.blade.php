@@ -5,6 +5,7 @@
 
 @push('topbar-right')
 <a href="{{ route('archive.people') }}" class="{{ $btnGhost }}">← All people</a>
+<button type="button" data-modal-open="mergeModal" class="{{ $btnGhost }}" title="Two records for the same person? Combine them into this one">Merge a duplicate</button>
 <button type="button" data-modal-open="uploadModal" data-fill='{"employee_id":"{{ $employee->id }}","department_id":"{{ $employee->department_id }}","category":"contract"}' class="{{ $btnPrimary }}">
     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/></svg>
     Upload file
@@ -193,6 +194,42 @@
 @include('archive.partials.employee-modal')
 @include('archive.partials.upload-modal')
 @include('archive.partials.incident-modal')
+
+@php
+    // likely duplicates (same name words) first, then everyone else
+    $others = \App\Models\Employee::whereKeyNot($employee->id)->with('department')->orderBy('full_name')->get(['id', 'full_name', 'status', 'department_id']);
+    [$likely, $rest] = $others->partition(fn ($o) => \App\Support\LiveTsaBoard::sameName($o->full_name, $employee->full_name));
+@endphp
+<dialog id="mergeModal" class="{{ $modal }}">
+    <form method="POST" action="{{ route('archive.people.merge', $employee) }}"
+          data-confirm="Merge the selected person into {{ $employee->full_name }}?
+
+Their timeline, incidents, coaching, files and reports move to {{ $employee->full_name }}, empty details are filled in, and the other record is deleted. This can't be undone.">
+        @csrf
+        <div class="flex items-center justify-between border-b border-line dark:border-slate-800 px-6 py-4">
+            <h3 class="font-semibold">Merge a duplicate into {{ $employee->full_name }}</h3>
+            <button type="button" data-modal-close class="rounded-lg p-1.5 text-ink-muted hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer" aria-label="Close">✕</button>
+        </div>
+        <div class="space-y-3 px-6 py-5">
+            <p class="text-sm text-ink-muted dark:text-slate-400">Pick the <strong>other</strong> record for the same person. This profile is kept; the other one is folded into it.</p>
+            <select name="duplicate_id" required class="{{ $input }}">
+                <option value="">— Choose the duplicate —</option>
+                @if($likely->isNotEmpty())
+                <optgroup label="Same name — likely duplicates">
+                    @foreach($likely as $o)<option value="{{ $o->id }}">{{ $o->full_name }} · {{ $o->department?->name ?? 'No team' }}{{ $o->status === 'resigned' ? ' · Former' : '' }}</option>@endforeach
+                </optgroup>
+                @endif
+                <optgroup label="Everyone else">
+                    @foreach($rest as $o)<option value="{{ $o->id }}">{{ $o->full_name }} · {{ $o->department?->name ?? 'No team' }}{{ $o->status === 'resigned' ? ' · Former' : '' }}</option>@endforeach
+                </optgroup>
+            </select>
+        </div>
+        <div class="flex justify-end gap-2 border-t border-line dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 px-6 py-3 rounded-b-2xl">
+            <button type="button" data-modal-close class="{{ $btnGhost }}">Cancel</button>
+            <button type="submit" class="{{ $btnPrimary }}">Merge</button>
+        </div>
+    </form>
+</dialog>
 
 <dialog id="milestoneModal" class="{{ $modal }}">
     <form method="POST" action="{{ route('archive.people.events.store', $employee) }}">
