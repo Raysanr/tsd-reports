@@ -390,13 +390,11 @@ class TsaSalesReportController extends Controller
         $visible = $products->where('is_hidden', false);
         $rows = $dayOrders->isEmpty() ? collect() : $visible
             ->map(fn ($product) => ProductPerformance::buildRow($product, $dayOrders, $products));
-        // Every partner app's Leads Report has an Excluded Leads column; TSD's doesn't.
-        $isPartner = in_array($orderTeam, array_column(config('partners.partners', []), 'name'), true);
-        $excluded = ! $isPartner || $dayOrders->isEmpty() ? 0 : $visible->sum(
-            fn ($product) => ProductPerformance::excludedLeads(ProductPerformance::matchingOrders($product, $dayOrders, $products))->count()
-        );
+        // Excluded Leads (VIP / EXCLUDED LEADS / restocking tags) already
+        // come out of Excess inside buildRow() since 2026-11-23, for every
+        // team — so no separate partner-only subtraction here any more.
 
-        return ['catered_leads' => (int) $rows->sum('catered'), 'excess_leads' => (int) $rows->sum('excess') - $excluded];
+        return ['catered_leads' => (int) $rows->sum('catered'), 'excess_leads' => (int) $rows->sum('excess')];
     }
 
     /** The raw counts Pick-up/Upselling Rate come from, so a caller can pool

@@ -70,7 +70,7 @@
             <th rowspan="2" data-sort-key="restocking"
                 class="bg-black border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-white uppercase tracking-wide whitespace-nowrap"
                 style="min-width:80px">
-                Restocking<br>Orders
+                Excluded<br>Leads
             </th>
             <th colspan="1"
                 class="bg-rose-300 dark:bg-rose-900 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-rose-900 dark:text-rose-200 uppercase tracking-wide">

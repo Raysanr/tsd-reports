@@ -612,19 +612,22 @@ class ProductPerformance
      *  real orders but not telesales leads, so they aren't Excess either. */
     public static function excludedLeads(Collection $orders): Collection
     {
-        $vip = $orders->filter(function ($order) {
-            foreach ((array) ($order->raw_tags ?? []) as $tag) {
-                if (preg_match('/\bVIP\b/i', (string) $tag) || preg_match('/\bEXCLUDED\s+LEADS?\b/i', (string) $tag)) {
-                    return true;
-                }
+        $vip = $orders->filter(fn ($order) => self::hasExcludedTag($order))->values();
+        $calledIds = self::ordersForColumn($vip, 'total_called')->pluck('id');
+
+        return $vip->whereNotIn('id', $calledIds)->reject(fn ($o) => self::hasRestockingTag($o))->values();
+    }
+
+    /** Tagged VIP ("VIP - CRD" and the like) or "EXCLUDED LEADS" in Pancake. */
+    public static function hasExcludedTag($order): bool
+    {
+        foreach ((array) ($order->raw_tags ?? []) as $tag) {
+            if (preg_match('/\bVIP\b/i', (string) $tag) || preg_match('/\bEXCLUDED\s+LEADS?\b/i', (string) $tag)) {
+                return true;
             }
+        }
 
-            return false;
-        })->values();
-        $taken = self::ordersForColumn($vip, 'total_called')->pluck('id')
-            ->merge(self::ordersForColumn($vip, 'restocking')->pluck('id'));
-
-        return $vip->whereNotIn('id', $taken)->values();
+        return false;
     }
 
     public static function hasRestockingTag($order): bool
@@ -1071,8 +1074,13 @@ class ProductPerformance
         // By the "RESTOCKING ORDERS" tag (2026-10-23), minus any order already
         // counted as called — same set the column's number counts, so the
         // pop-up always lists exactly that many orders.
+        // 2026-11-23 (explicit request): shown as "Excluded Leads" on the
+        // Leads Report, like the partner apps — now also counts uncalled
+        // orders tagged VIP or "EXCLUDED LEADS" (see hasExcludedTag()), so
+        // they come out of Excess too. Key kept as 'restocking' so sorting,
+        // drill-down and Insights keep working unchanged.
         if ($column === 'restocking') {
-            $tagged = $orders->filter(fn ($o) => self::hasRestockingTag($o))->values();
+            $tagged = $orders->filter(fn ($o) => self::hasRestockingTag($o) || self::hasExcludedTag($o))->values();
             $calledIds = self::ordersForColumn($tagged, 'total_called')->pluck('id');
 
             return $tagged->whereNotIn('id', $calledIds)->values();

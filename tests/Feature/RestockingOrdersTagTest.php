@@ -39,4 +39,24 @@ class RestockingOrdersTagTest extends TestCase
         $this->assertSame(['tag-1', 'tag-2'], $listed);   // the pop-up lists exactly what's counted
         $this->assertSame($row['total'] - $row['catered'] - $row['restocking'], $row['excess']);
     }
+
+    /** The column is "Excluded Leads" now (2026-11-23, like the partner
+     *  apps): restocking-tagged plus VIP / "EXCLUDED LEADS"-tagged orders,
+     *  all out of Excess. */
+    public function test_excluded_leads_also_counts_vip_and_excluded_tags(): void
+    {
+        $this->order('restock', ['RESTOCKING ORDERS']);
+        $this->order('vip', ['VIP - CRD']);
+        $this->order('excluded', ['EXCLUDED LEADS']);
+        $this->order('plain', ['CANPRO']);
+        $this->order('similar', ['VIPER CASE']);                   // not a VIP tag
+
+        $orders = Order::all();
+        $row = ProductPerformance::tally($orders);
+        $listed = ProductPerformance::ordersForColumn($orders, 'restocking')->pluck('pancake_order_id')->sort()->values()->all();
+
+        $this->assertSame(['excluded', 'restock', 'vip'], $listed);
+        $this->assertSame(3, $row['restocking']);
+        $this->assertSame(2, $row['excess']);
+    }
 }
