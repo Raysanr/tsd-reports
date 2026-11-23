@@ -49,6 +49,8 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules', 'normal-pages
         Route::post('/hub/agendas', [\App\Http\Controllers\HubCalendarController::class, 'store'])->name('hub.agendas.store');
         Route::put('/hub/agendas/{agenda}', [\App\Http\Controllers\HubCalendarController::class, 'update'])->name('hub.agendas.update');
         Route::delete('/hub/agendas/{agenda}', [\App\Http\Controllers\HubCalendarController::class, 'destroy'])->name('hub.agendas.destroy');
+        Route::post('/hub/announcements', [\App\Http\Controllers\AnnouncementController::class, 'store'])->name('hub.announcements.store');
+        Route::delete('/hub/announcements/{announcement}', [\App\Http\Controllers\AnnouncementController::class, 'destroy'])->name('hub.announcements.destroy');
     });
 
     Route::get('/',                [DashboardController::class,      'index'])->name('dashboard');

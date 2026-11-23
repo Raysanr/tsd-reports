@@ -139,6 +139,39 @@
         font-size: clamp(34px, 4.4vw, 58px); line-height: 1; letter-spacing: -0.04em;
     }
     .intro > p { flex: 0 1 400px; margin: 0; font-size: 17px; line-height: 1.55; color: var(--muted); }
+    /* Announcements board (2026-11-23) */
+    .ann { margin: 0 0 24px; padding: 20px 22px; border-radius: 24px; background: var(--surface); box-shadow: 0 1px 2px rgba(15,23,42,.05); }
+    .ann-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+    .ann-head h2 { margin: 0; font-size: 17px; font-weight: 800; color: var(--ink); }
+    .ann-add { border: 0; border-radius: 999px; padding: 9px 16px; background: var(--ink); color: var(--surface); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+    .ann-flash { margin: 10px 0 0; font-size: 13px; color: #047857; }
+    .ann-empty { margin: 10px 0 0; font-size: 14px; color: var(--muted); }
+    .ann-list { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+    .ann-item { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 16px; background: var(--bg); }
+    .ann-item.is-important { background: color-mix(in srgb, var(--primary) 16%, var(--surface)); }
+    .ann-dot { width: 10px; height: 10px; margin-top: 6px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+    .ann-item.is-important .ann-dot { background: var(--primary); }
+    .ann-body { flex: 1; min-width: 0; }
+    .ann-title { margin: 0; font-size: 15px; font-weight: 700; color: var(--ink); }
+    .ann-badge { display: inline-block; margin-right: 8px; padding: 2px 8px; border-radius: 999px; background: var(--primary); color: #111827; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; vertical-align: 1px; }
+    .ann-text { margin: 4px 0 0; font-size: 14px; line-height: 1.5; color: var(--ink); white-space: pre-line; }
+    .ann-meta { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+    .ann-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .ann-actions form { margin: 0; }
+    .ann-hide, .ann-remove, .ann-showall { border: 0; background: transparent; padding: 6px 8px; border-radius: 8px; font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; }
+    .ann-hide:hover, .ann-showall:hover { color: var(--ink); background: var(--line); }
+    .ann-remove:hover { color: #b91c1c; background: #fee2e2; }
+    .ann-showall { margin-top: 8px; }
+    .ann-dialog { width: min(480px, calc(100vw - 32px)); border: 0; border-radius: 20px; padding: 22px; background: var(--surface); color: var(--ink); }
+    .ann-dialog::backdrop { background: rgba(15,23,42,.45); }
+    .ann-dialog h3 { margin: 0 0 12px; font-size: 18px; }
+    .ann-dialog label { display: block; margin: 12px 0 6px; font-size: 13px; font-weight: 600; }
+    .ann-dialog input:not([type=checkbox]), .ann-dialog textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; }
+    .ann-dialog .ann-check { display: flex; gap: 8px; align-items: center; font-weight: 500; }
+    .ann-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+    .ann-cancel, .ann-post { border: 0; border-radius: 999px; padding: 10px 18px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+    .ann-cancel { background: var(--bg); color: var(--ink); }
+    .ann-post { background: var(--ink); color: var(--surface); }
     .alert {
         margin: 0 0 16px; padding: 12px 16px; border-radius: 14px; font-size: 14px; font-weight: 600;
         background: rgba(225, 29, 72, 0.12); color: #e11d48;
@@ -543,6 +576,70 @@
 
     @if(session('error'))
     <p role="alert" class="alert">{{ session('error') }}</p>
+    @endif
+
+    {{-- Announcements board (2026-11-23): admins post, everyone reads. Each
+         person can hide one for themselves (remembered in their browser). --}}
+    @php
+        $announcements = \App\Models\Announcement::showing()->with('author')->orderByDesc('important')->latest()->limit(6)->get();
+        $canAnnounce = (bool) auth()->user()?->isAtLeastAdmin();
+    @endphp
+    @if($announcements->isNotEmpty() || $canAnnounce)
+    <section class="ann" aria-labelledby="annTitle">
+        <div class="ann-head">
+            <h2 id="annTitle">Announcements</h2>
+            @if($canAnnounce)
+            <button type="button" class="ann-add" onclick="document.getElementById('annDialog').showModal()">+ Post announcement</button>
+            @endif
+        </div>
+        @if(session('success'))<p class="ann-flash" role="status">{{ session('success') }}</p>@endif
+        @if($announcements->isEmpty())
+            <p class="ann-empty">No announcements right now. Post one to tell the whole team something.</p>
+        @else
+        <ul class="ann-list">
+            @foreach($announcements as $a)
+            <li class="ann-item {{ $a->important ? 'is-important' : '' }}" data-ann="{{ $a->id }}">
+                <span class="ann-dot" aria-hidden="true"></span>
+                <div class="ann-body">
+                    <p class="ann-title">@if($a->important)<span class="ann-badge">Important</span>@endif{{ $a->title }}</p>
+                    @if($a->body)<p class="ann-text">{{ $a->body }}</p>@endif
+                    <p class="ann-meta">{{ $a->author?->name ?? 'Admin' }} · {{ $a->created_at->diffForHumans() }}@if($a->ends_on) · until {{ $a->ends_on->format('M j') }}@endif</p>
+                </div>
+                <div class="ann-actions">
+                    <button type="button" class="ann-hide" data-ann-hide="{{ $a->id }}" title="Hide this for me" aria-label="Hide “{{ $a->title }}” for me">Hide</button>
+                    @if($canAnnounce)
+                    <form method="POST" action="{{ route('hub.announcements.destroy', $a) }}" onsubmit="return confirm('Remove this announcement for everyone?')">
+                        @csrf @method('DELETE')
+                        <button type="submit" class="ann-remove" aria-label="Remove “{{ $a->title }}” for everyone">Remove</button>
+                    </form>
+                    @endif
+                </div>
+            </li>
+            @endforeach
+        </ul>
+        <button type="button" class="ann-showall" data-ann-showall hidden>Show hidden announcements</button>
+        @endif
+    </section>
+
+    @if($canAnnounce)
+    <dialog id="annDialog" class="ann-dialog" aria-labelledby="annDialogTitle">
+        <form method="POST" action="{{ route('hub.announcements.store') }}">
+            @csrf
+            <h3 id="annDialogTitle">Post an announcement</h3>
+            <label for="annTitleInput">Title *</label>
+            <input id="annTitleInput" name="title" required maxlength="120" placeholder="e.g. New product launch on Monday">
+            <label for="annBodyInput">Message</label>
+            <textarea id="annBodyInput" name="body" rows="4" maxlength="2000" placeholder="Details the team should know"></textarea>
+            <label for="annEndsInput">Show until (optional)</label>
+            <input id="annEndsInput" type="date" name="ends_on" min="{{ today()->toDateString() }}">
+            <label class="ann-check"><input type="checkbox" name="important" value="1"> Mark as important (shown first, highlighted)</label>
+            <div class="ann-dialog-actions">
+                <button type="button" class="ann-cancel" onclick="this.closest('dialog').close()">Cancel</button>
+                <button type="submit" class="ann-post">Post</button>
+            </div>
+        </form>
+    </dialog>
+    @endif
     @endif
 
     <div class="hub-split">
@@ -1077,6 +1174,27 @@
     });
 
     renderPanel();
+})();
+</script>
+<script>
+// Announcements: "Hide" is per person, remembered in this browser (2026-11-23)
+(function () {
+    const KEY = 'hub.hiddenAnnouncements';
+    const read = () => { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (_) { return []; } };
+    const write = (ids) => { try { localStorage.setItem(KEY, JSON.stringify(ids)); } catch (_) {} };
+    const apply = () => {
+        const hidden = read();
+        let n = 0;
+        document.querySelectorAll('[data-ann]').forEach((li) => { const h = hidden.includes(li.dataset.ann); li.hidden = h; if (h) n++; });
+        const btn = document.querySelector('[data-ann-showall]');
+        if (btn) { btn.hidden = n === 0; btn.textContent = 'Show ' + n + ' hidden ' + (n === 1 ? 'announcement' : 'announcements'); }
+    };
+    document.addEventListener('click', (e) => {
+        const hide = e.target.closest('[data-ann-hide]');
+        if (hide) { write([...new Set([...read(), hide.dataset.annHide])]); apply(); }
+        if (e.target.closest('[data-ann-showall]')) { write([]); apply(); }
+    });
+    apply();
 })();
 </script>
 </body>
