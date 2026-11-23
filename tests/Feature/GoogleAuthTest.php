@@ -54,7 +54,7 @@ class GoogleAuthTest extends TestCase
         $response = $this->get(route('google.callback'));
 
         $response->assertRedirect(route('login'));
-        $response->assertSessionHasErrors('email');
+        $response->assertSessionHas('access_request_email', 'stranger@example.com');
         $this->assertGuest();
         $this->assertDatabaseMissing('users', ['email' => 'stranger@example.com']);
     }
@@ -72,7 +72,7 @@ class GoogleAuthTest extends TestCase
     public function test_an_unknown_google_sign_in_becomes_an_access_request_an_admin_can_accept(): void
     {
         $this->fakeGoogleUser('Stranger@Example.com', 'g-999', 'New Person');
-        $this->get(route('google.callback'))->assertRedirect(route('login'))->assertSessionHasErrors('email');
+        $this->get(route('google.callback'))->assertRedirect(route('login'))->assertSessionHas('access_request_email', 'stranger@example.com');
         $this->get(route('google.callback')); // trying again doesn't duplicate
         $this->assertGuest();
         $req = \App\Models\AccessRequest::sole();
@@ -102,8 +102,7 @@ class GoogleAuthTest extends TestCase
         $this->actingAs($admin)->post(route('hub.users.requests.reject', $req))->assertSessionHas('success');
         auth()->logout();
 
-        $this->get(route('google.callback'))->assertRedirect(route('login'))
-            ->assertSessionHasErrors(['email' => 'Your request to access this system was declined. Ask an admin if this is a mistake.']);
+        $this->followingRedirects()->get(route('google.callback'))->assertSee('Your request was declined');
         $this->assertGuest();
         $this->assertDatabaseMissing('users', ['email' => 'nope@example.com']);
     }
@@ -119,14 +118,25 @@ class GoogleAuthTest extends TestCase
         $this->assertDatabaseMissing('users', ['email' => 'someone@example.com']);
     }
 
-    public function test_login_page_shows_the_request_sent_note_as_good_news_and_declined_as_an_error(): void
+    public function test_the_request_status_stays_on_the_login_page_after_a_reload(): void
     {
-        $this->get(route('login'))->assertOk()->assertSee('Good to see you')->assertSee('Continue with Google');
+        $this->get(route('login'))->assertOk()->assertSee('Good to see you')->assertDontSee('notice notice-', false);
 
         $this->fakeGoogleUser('new@example.com');
-        $this->followingRedirects()->get(route('google.callback'))->assertSee('notice notice-info', false)->assertSee('was sent');
+        $this->get(route('google.callback'));
+
+        // reload twice: still shown, with its live status
+        $this->get(route('login'))->assertSee('notice notice-info', false)->assertSee('Your request is waiting for an admin.');
+        $this->get(route('login'))->assertSee('Your request is waiting for an admin.')->assertSee('new@example.com');
+
+        \App\Models\AccessRequest::where('email', 'new@example.com')->update(['status' => 'approved']);
+        $this->get(route('login'))->assertSee('notice notice-ok', false)->assertSee("You've been accepted.");
 
         \App\Models\AccessRequest::where('email', 'new@example.com')->update(['status' => 'rejected']);
-        $this->followingRedirects()->get(route('google.callback'))->assertSee('notice notice-error', false)->assertSee('declined');
+        $this->get(route('login'))->assertSee('notice notice-error', false)->assertSee('Your request was declined.');
+
+        // "Use a different account" forgets it
+        $this->get(route('login', ['other' => 1]))->assertRedirect(route('login'));
+        $this->get(route('login'))->assertDontSee('Your request was declined.');
     }
 }

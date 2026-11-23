@@ -2,9 +2,16 @@
      only; people not in User Management become access requests. Standalone
      (not a shared layout; the error pages use layouts.error in the same style). --}}
 @php
+    // one-time errors (deactivated, Google sign-in failed) — red
     $error = $errors->first('email');
-    // "request sent" is good news (yellow); declined / deactivated / failed are red
-    $isPending = $error && str_contains($error, 'was sent');
+    // this browser's access request, remembered across reloads (AuthController::showLogin)
+    $accessRequest ??= null;
+    $requestNotice = match ($accessRequest?->status) {
+        'pending'  => ['info', 'Your request is waiting for an admin.', 'Sent ' . $accessRequest->created_at->diffForHumans() . ' as ' . $accessRequest->email . '. Sign in again once you\'ve been accepted.'],
+        'approved' => ['ok', 'You\'ve been accepted.', 'Continue with Google below to sign in.'],
+        'rejected' => ['error', 'Your request was declined.', 'Ask an admin if this is a mistake.'],
+        default    => null,
+    };
 @endphp
 <!DOCTYPE html>
 <html lang="en">
@@ -32,6 +39,8 @@
         .notice { margin-top: 24px; padding: 14px 16px; border-radius: 16px; font-size: 14px; line-height: 1.5; }
         .notice-info { background: #fefce8; color: #713f12; }
         .notice-error { background: #fef2f2; color: #991b1b; }
+        .notice-ok { background: #ecfdf5; color: #065f46; }
+        .notice-link { display: block; margin-top: 8px; font-size: 13px; font-weight: 600; color: inherit; }
         .google { margin-top: 32px; display: inline-flex; align-items: center; gap: 14px; min-height: 58px; padding: 9px 28px 9px 9px; border-radius: 999px; background: var(--ink); color: #fff; text-decoration: none; font-size: 16px; font-weight: 700; transition: transform .15s ease, box-shadow .15s ease; }
         .google:hover { transform: translateY(-1px); box-shadow: 0 12px 28px -14px rgba(24,24,27,.7); }
         .google:focus-visible { outline: 3px solid #CA8A04; outline-offset: 3px; }
@@ -82,7 +91,13 @@
                     <div class="notice notice-info" role="status">{{ session('status') }}</div>
                 @endif
                 @if($error)
-                    <div class="notice {{ $isPending ? 'notice-info' : 'notice-error' }}" role="{{ $isPending ? 'status' : 'alert' }}">{{ $error }}</div>
+                    <div class="notice notice-error" role="alert">{{ $error }}</div>
+                @elseif($requestNotice)
+                    @php [$kind, $headline, $detail] = $requestNotice; @endphp
+                    <div class="notice notice-{{ $kind }}" role="{{ $kind === 'error' ? 'alert' : 'status' }}">
+                        <strong>{{ $headline }}</strong> {{ $detail }}
+                        <a href="{{ route('login', ['other' => 1]) }}" class="notice-link">Use a different account</a>
+                    </div>
                 @endif
 
                 <a href="{{ route('google.redirect') }}" class="google">

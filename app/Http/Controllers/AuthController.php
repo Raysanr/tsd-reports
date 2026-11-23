@@ -10,9 +10,21 @@ use Laravel\Socialite\Facades\Socialite;
 
 class AuthController extends Controller
 {
-    public function showLogin()
+    /** The page remembers this browser's access request (2026-11-23) so its
+     *  status (waiting / accepted / declined) survives a reload, instead of
+     *  a one-time flash message. ?other=1 forgets it (another account). */
+    public function showLogin(Request $request)
     {
-        return view('auth.login');
+        if ($request->boolean('other')) {
+            $request->session()->forget('access_request_email');
+
+            return redirect()->route('login');
+        }
+        $email = $request->session()->get('access_request_email');
+
+        return view('auth.login', [
+            'accessRequest' => $email ? \App\Models\AccessRequest::where('email', $email)->first() : null,
+        ]);
     }
 
     public function redirectToGoogle()
@@ -59,12 +71,10 @@ class AuthController extends Controller
             if ($req->wasRecentlyCreated) {
                 \App\Support\ActivityLogger::log('access.requested', $req, "Access requested by {$req->name} ({$req->email})");
             }
+            // remembered (not flashed): the login page keeps showing its status
+            $request->session()->put('access_request_email', $req->email);
 
-            return redirect()->route('login')->withErrors([
-                'email' => $req->status === \App\Models\AccessRequest::REJECTED
-                    ? 'Your request to access this system was declined. Ask an admin if this is a mistake.'
-                    : 'Your request to access this system was sent. An admin will review it — sign in again once you\'ve been accepted.',
-            ]);
+            return redirect()->route('login');
         }
 
         if (!$user->is_active) {
@@ -80,6 +90,7 @@ class AuthController extends Controller
 
         Auth::login($user, remember: true);
         $request->session()->regenerate();
+        $request->session()->forget('access_request_email');
 
         ActivityLogger::log('auth.login', $user, "Logged in as \"{$user->email}\" (Google).");
 
