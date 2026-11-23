@@ -96,6 +96,17 @@
         .c1 { top: 4%; left: 4%; } .c2 { top: 20%; right: -2%; animation-delay: -2s; } .c3 { bottom: 14%; left: -2%; animation-delay: -4s; } .c4 { bottom: 2%; right: 10%; animation-delay: -1s; }
         @keyframes float { 50% { transform: translateY(-10px); } }
 
+        /* cursor parallax: JS sets --px/--py (-1..1); each layer moves by its own depth --d */
+        .orbit { --px: 0; --py: 0; transform: perspective(1000px) rotateX(calc(var(--py) * -8deg)) rotateY(calc(var(--px) * 10deg)); }
+        .ring, .core, .chip { translate: calc(var(--px) * var(--d, 0) * 1px) calc(var(--py) * var(--d, 0) * 1px); }
+        .ring { --d: 6; } .ring.r2 { --d: 14; } .core { --d: 22; }
+        .c1 { --d: 38; } .c2 { --d: 30; } .c3 { --d: 34; } .c4 { --d: 44; }
+        .orbit::before { content: ""; position: absolute; inset: 10%; border-radius: 50%; pointer-events: none; background: radial-gradient(circle at calc(50% + var(--px) * 30%) calc(50% + var(--py) * 30%), rgba(255,236,160,.35), transparent 55%); }
+        .chip { transition: scale .25s cubic-bezier(.2,.9,.2,1), box-shadow .25s; }
+        .chip:hover { scale: 1.07; box-shadow: 0 18px 40px -14px rgba(60,45,0,.55); }
+        .core b { transition: letter-spacing .4s; }
+        .orbit:hover .core b { letter-spacing: .01em; }
+
         @media (max-width: 880px) {
             .page { grid-template-columns: 1fr; padding-block: 16px; }
             .orbit { display: none; } /* phones/tablets: just the sign-in */
@@ -162,6 +173,26 @@
 </div>
 
 <script>
+// Orbit follows the cursor (mouse/trackpad only; off for reduced motion)
+(function () {
+    var orbit = document.querySelector('.orbit');
+    if (!orbit || !window.matchMedia('(pointer: fine)').matches || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var tx = 0, ty = 0, x = 0, y = 0, running = false;
+    function step() {
+        x += (tx - x) * 0.08; y += (ty - y) * 0.08;
+        orbit.style.setProperty('--px', x.toFixed(4));
+        orbit.style.setProperty('--py', y.toFixed(4));
+        if (Math.abs(tx - x) > 0.001 || Math.abs(ty - y) > 0.001) requestAnimationFrame(step); else running = false;
+    }
+    function kick() { if (!running) { running = true; requestAnimationFrame(step); } }
+    window.addEventListener('pointermove', function (e) {
+        tx = Math.max(-1, Math.min(1, (e.clientX / window.innerWidth) * 2 - 1));
+        ty = Math.max(-1, Math.min(1, (e.clientY / window.innerHeight) * 2 - 1));
+        kick();
+    });
+    document.addEventListener('pointerleave', function () { tx = 0; ty = 0; kick(); });
+})();
+
 (function () {
     var lines = [
         ['Make every call', 'count.'],
