@@ -1,6 +1,6 @@
 {{-- Sign-in page — "Bright Bento" design (picked 2026-11-23). Google sign-in
      only; people not in User Management become access requests. Standalone
-     (not layouts.auth, which the error pages still use). --}}
+     (not a shared layout; the error pages use layouts.error in the same style). --}}
 @php
     $error = $errors->first('email');
     // "request sent" is good news (yellow); declined / deactivated / failed are red

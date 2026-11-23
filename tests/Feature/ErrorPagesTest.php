@@ -24,9 +24,9 @@ class ErrorPagesTest extends TestCase
         $response = $this->get(route('hub.product-management'));
 
         $response->assertForbidden();
-        $response->assertSee('TSD Leads Reports', false);
+        $response->assertSee('TSD Reports Hub', false);
         $response->assertSee('Access denied', false);
-        $response->assertSee(route('dashboard'), false);
+        $response->assertSee(route('hub'), false);
     }
 
     public function test_404_page_is_branded_not_the_bare_default(): void
@@ -36,7 +36,17 @@ class ErrorPagesTest extends TestCase
         $response = $this->get('/this-route-does-not-exist-anywhere');
 
         $response->assertNotFound();
-        $response->assertSee('TSD Leads Reports', false);
+        $response->assertSee('TSD Reports Hub', false);
         $response->assertSee('Page not found', false);
+    }
+
+    public function test_429_and_500_pages_use_the_same_design(): void
+    {
+        foreach (['429' => 'Slow down a moment', '500' => 'Something went wrong'] as $code => $title) {
+            $html = view("errors.{$code}")->render();
+            $this->assertStringContainsString($title, $html);
+            $this->assertStringContainsString('TSD Reports Hub', $html);
+            $this->assertStringContainsString(route('hub'), $html);
+        }
     }
 }
