@@ -118,4 +118,15 @@ class GoogleAuthTest extends TestCase
         $this->actingAs($normal)->post(route('hub.users.requests.accept', $req), ['role' => 'normal'])->assertForbidden();
         $this->assertDatabaseMissing('users', ['email' => 'someone@example.com']);
     }
+
+    public function test_login_page_shows_the_request_sent_note_as_good_news_and_declined_as_an_error(): void
+    {
+        $this->get(route('login'))->assertOk()->assertSee('Good to see you')->assertSee('Continue with Google');
+
+        $this->fakeGoogleUser('new@example.com');
+        $this->followingRedirects()->get(route('google.callback'))->assertSee('notice notice-info', false)->assertSee('was sent');
+
+        \App\Models\AccessRequest::where('email', 'new@example.com')->update(['status' => 'rejected']);
+        $this->followingRedirects()->get(route('google.callback'))->assertSee('notice notice-error', false)->assertSee('declined');
+    }
 }
