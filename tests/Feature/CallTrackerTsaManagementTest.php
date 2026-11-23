@@ -653,7 +653,14 @@ class CallTrackerTsaManagementTest extends TestCase
             'password' => bcrypt('password'),
         ]);
 
-        $response = $this->post(route('login'), ['email' => $user->email, 'password' => 'password']);
+        $google = \Mockery::mock(\Laravel\Socialite\Contracts\User::class);
+        $google->shouldReceive('getId')->andReturn('g-tsa');
+        $google->shouldReceive('getEmail')->andReturn($user->email);
+        $google->shouldReceive('getName')->andReturn($user->name);
+        $google->shouldReceive('getAvatar')->andReturn(null);
+        \Laravel\Socialite\Facades\Socialite::shouldReceive('driver->user')->andReturn($google);
+
+        $response = $this->get(route('google.callback'));
 
         $response->assertSessionHasErrors('email');
         $this->assertGuest();

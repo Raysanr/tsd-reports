@@ -6,7 +6,6 @@ use App\Models\User;
 use App\Support\ActivityLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Validation\ValidationException;
 use Laravel\Socialite\Facades\Socialite;
 
 class AuthController extends Controller
@@ -14,49 +13,6 @@ class AuthController extends Controller
     public function showLogin()
     {
         return view('auth.login');
-    }
-
-    public function login(Request $request)
-    {
-        $credentials = $request->validate([
-            'email'    => ['required', 'string', 'email'],
-            'password' => ['required', 'string'],
-        ]);
-
-        if (!Auth::attempt($credentials, $request->boolean('remember'))) {
-            // Attached to the email field (not a top-level banner) — same
-            // field-level error convention as every other form in this app
-            // (TSA Management, Product Management, Settings).
-            throw ValidationException::withMessages([
-                'email' => 'These credentials do not match our records.',
-            ]);
-        }
-
-        if (!Auth::user()->is_active) {
-            Auth::logout();
-
-            throw ValidationException::withMessages([
-                'email' => 'This account has been deactivated.',
-            ]);
-        }
-
-        $request->session()->regenerate();
-
-        // Successful sign-ins only — a failed attempt isn't an authenticated
-        // user's action to attribute, and logging it here would need a
-        // separate, unauthenticated-actor code path in ActivityLogger.
-        ActivityLogger::log('auth.login', Auth::user(), "Logged in as \"{$credentials['email']}\".");
-
-        // Deliberately NOT redirect()->intended() — the whole point of the
-        // Hub redirect is "always land here after logging in", but
-        // intended() prefers whatever protected URL a guest tried to visit
-        // BEFORE reaching login (stored in session by redirectGuestsTo) over
-        // this fallback. That stored URL persists across logout/login too,
-        // since nothing here ever clears it — so intended() would silently
-        // skip the Hub for good the first time anyone visits the dashboard
-        // directly while signed out. A plain route('hub') redirect has no
-        // such override.
-        return redirect()->route('hub');
     }
 
     public function redirectToGoogle()

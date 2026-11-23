@@ -41,121 +41,6 @@ class AuthTest extends TestCase
         $response->assertDontSee('Sign up');
     }
 
-    public function test_login_succeeds_with_correct_credentials(): void
-    {
-        $user = User::factory()->create(['password' => Hash::make('secret123')]);
-
-        $response = $this->post(route('login'), [
-            'email'    => $user->email,
-            'password' => 'secret123',
-        ]);
-
-        $response->assertRedirect(route('hub'));
-        $this->assertAuthenticatedAs($user);
-    }
-
-    /**
-     * Explicit request: login always lands on the Hub, no exceptions — one
-     * real login page shared by both TSD systems. A plain redirect()->
-     * intended(route('hub')) breaks this: visiting a protected page (e.g.
-     * the dashboard) while logged out stores THAT page as the "intended"
-     * destination, and intended() prefers it over the route('hub')
-     * fallback on every subsequent login — even after logging out and back
-     * in — since nothing ever clears that stored URL. Confirmed live: a
-     * user who ever visits the dashboard directly while signed out never
-     * lands on the Hub again until intended() is dropped entirely.
-     */
-    public function test_login_lands_on_the_hub_even_after_the_guest_first_tried_to_visit_the_dashboard_directly(): void
-    {
-        $user = User::factory()->create(['password' => Hash::make('secret123')]);
-
-        // Simulates the guest hitting a protected URL first — this is what
-        // stores an "intended" URL in the session that intended() would
-        // otherwise prefer over route('hub').
-        $this->get(route('dashboard'));
-
-        $response = $this->post(route('login'), [
-            'email'    => $user->email,
-            'password' => 'secret123',
-        ]);
-
-        $response->assertRedirect(route('hub'));
-    }
-
-    public function test_login_fails_with_wrong_password(): void
-    {
-        $user = User::factory()->create(['password' => Hash::make('secret123')]);
-
-        $response = $this->post(route('login'), [
-            'email'    => $user->email,
-            'password' => 'wrong-password',
-        ]);
-
-        $response->assertSessionHasErrors('email');
-        $this->assertGuest();
-    }
-
-    /**
-     * Explicit request: POST /login had no throttling at all — unlimited
-     * password guesses against any known/guessed email. throttle:login
-     * (5/min, keyed by email+IP — see AppServiceProvider::boot()) now blocks
-     * a 6th rapid attempt with a 429, regardless of whether any of the first
-     * 5 attempts happened to guess the password correctly.
-     */
-    public function test_repeated_failed_logins_are_rate_limited(): void
-    {
-        $user = User::factory()->create(['password' => Hash::make('secret123')]);
-
-        for ($i = 0; $i < 5; $i++) {
-            $response = $this->post(route('login'), [
-                'email' => $user->email, 'password' => 'wrong-password',
-            ]);
-            $response->assertSessionHasErrors('email');
-        }
-
-        // 6th attempt in under a minute — even with the CORRECT password —
-        // is throttled before credentials are ever checked.
-        $response = $this->post(route('login'), [
-            'email' => $user->email, 'password' => 'secret123',
-        ]);
-
-        $response->assertStatus(429);
-        $this->assertGuest();
-    }
-
-    public function test_rate_limit_is_keyed_by_email_not_just_ip(): void
-    {
-        $attacked  = User::factory()->create(['password' => Hash::make('secret123')]);
-        $bystander = User::factory()->create(['password' => Hash::make('secret456')]);
-
-        for ($i = 0; $i < 5; $i++) {
-            $this->post(route('login'), ['email' => $attacked->email, 'password' => 'wrong']);
-        }
-
-        // Same IP (Laravel's test client), but a DIFFERENT email — a
-        // legitimate coworker on a shared office/VPN IP must still be able
-        // to sign in even while someone else on that IP is being throttled.
-        $response = $this->post(route('login'), [
-            'email' => $bystander->email, 'password' => 'secret456',
-        ]);
-
-        $response->assertRedirect(route('hub'));
-        $this->assertAuthenticatedAs($bystander);
-    }
-
-    public function test_login_rejects_a_deactivated_account_even_with_correct_password(): void
-    {
-        $user = User::factory()->inactive()->create(['password' => Hash::make('secret123')]);
-
-        $response = $this->post(route('login'), [
-            'email'    => $user->email,
-            'password' => 'secret123',
-        ]);
-
-        $response->assertSessionHasErrors('email');
-        $this->assertGuest();
-    }
-
     public function test_logout_ends_the_session(): void
     {
         $this->actingAs(User::factory()->create());
@@ -184,5 +69,15 @@ class AuthTest extends TestCase
         $response = $this->get(route('login'));
 
         $response->assertRedirect(route('hub'));
+    }
+
+    /** Google sign-in only (2026-11-23): the email + password form is gone. */
+    public function test_password_sign_in_is_gone(): void
+    {
+        $user = User::factory()->create(['password' => Hash::make('secret123')]);
+
+        $this->get(route('login'))->assertOk()->assertSee('Continue with Google')->assertDontSee('name="password"', false);
+        $this->post('/login', ['email' => $user->email, 'password' => 'secret123'])->assertStatus(405);
+        $this->assertGuest();
     }
 }

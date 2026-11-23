@@ -142,9 +142,15 @@ class ActivityLogTest extends TestCase
      */
     public function test_logging_in_writes_an_activity_log_entry(): void
     {
-        $user = User::factory()->create(['password' => bcrypt('password123')]);
+        $user = User::factory()->create();
+        $google = \Mockery::mock(\Laravel\Socialite\Contracts\User::class);
+        $google->shouldReceive('getId')->andReturn('g-log');
+        $google->shouldReceive('getEmail')->andReturn($user->email);
+        $google->shouldReceive('getName')->andReturn($user->name);
+        $google->shouldReceive('getAvatar')->andReturn(null);
+        \Laravel\Socialite\Facades\Socialite::shouldReceive('driver->user')->andReturn($google);
 
-        $this->post(route('login'), ['email' => $user->email, 'password' => 'password123']);
+        $this->get(route('google.callback'));
 
         $this->assertDatabaseHas('activity_logs', [
             'user_id' => $user->id,

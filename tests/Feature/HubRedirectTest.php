@@ -84,18 +84,6 @@ class HubRedirectTest extends TestCase
         $response->assertRedirect(route('login'));
     }
 
-    public function test_manual_login_redirects_to_the_hub(): void
-    {
-        $user = User::factory()->create(['password' => Hash::make('secret123')]);
-
-        $response = $this->post(route('login'), [
-            'email'    => $user->email,
-            'password' => 'secret123',
-        ]);
-
-        $response->assertRedirect(route('hub'));
-    }
-
     /** Explicit request (2026-08-12): "sometimes logging in redirects to the
      *  dashboard instead of the Hub." An already-authenticated session
      *  hitting GET /login (bookmark, restored tab, "Keep me signed in" never
