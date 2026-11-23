@@ -89,6 +89,54 @@ class LogoutLeadRedistributorTest extends TestCase
         $this->assertSame($gemma->id, $lead->fresh()->tsa_id);
     }
 
+    /**
+     * Regression test, 2026-11-23 ("a lead distributed to one TSA, then also
+     * to another"): two sweeps running at once read the same backlog. If the
+     * other sweep already moved a lead after this one read it, this one
+     * must leave it alone instead of moving it a second time.
+     */
+    public function test_a_lead_another_sweep_already_moved_is_not_moved_again(): void
+    {
+        $gemma    = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel   = TsaShift::where('tsa_key', 'Mariel')->first();
+        $kathleen = TsaShift::where('tsa_key', 'Kathleen')->first() ?? TsaShift::where('id', '!=', $gemma->id)->where('id', '!=', $mariel->id)->first();
+        $mariel->update(['status' => 'login']);
+        $gemma->update(['status' => TsaShift::STATUS_LOGOUT]);
+
+        $lead = $this->leadFor($gemma);
+
+        // The other sweep wins the race: right after this run reads the
+        // backlog, the lead is already with Kathleen and she has dialed it.
+        Lead::retrieved(function (Lead $l) use ($lead, $kathleen) {
+            if ($l->id === $lead->id) {
+                \DB::table('leads')->where('id', $lead->id)->update(['tsa_id' => $kathleen->id, 'dialed_at' => now()]);
+            }
+        });
+
+        $moved = \App\Support\LogoutLeadRedistributor::redistribute($gemma);
+        Lead::flushEventListeners();
+
+        $this->assertSame(0, $moved);
+        $this->assertSame($kathleen->id, $lead->fresh()->tsa_id);
+        $this->assertSame(0, LeadActivity::where('lead_id', $lead->id)->where('type', 'transferred')->count());
+    }
+
+    /** A TSA who logged straight back in before the after-response job ran
+     *  keeps her own queue (2026-11-23). */
+    public function test_a_tsa_back_online_before_the_job_runs_keeps_her_leads(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $mariel->update(['status' => 'login']);
+
+        $lead = $this->leadFor($gemma);
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGIN);
+        (new RedistributeLoggedOutTsaLeads($gemma))->handle();
+
+        $this->assertSame($gemma->id, $lead->fresh()->tsa_id);
+    }
+
     /** The counterpart to the dialed-lead test above — a lead Gemma never
      *  even clicked to call still redistributes normally, same as before
      *  the checkmark exclusion was added. */

@@ -123,6 +123,12 @@ class LogoutLeadRedistributor
      */
     public static function redistribute(TsaShift $tsa): int
     {
+        // Runs after the response, so she may have logged straight back in
+        // by now (2026-11-23) — an online TSA keeps her own queue.
+        if ($tsa->fresh()?->status !== TsaShift::STATUS_LOGOUT) {
+            return 0;
+        }
+
         // Root-caused 2026-08-26 (real examples #1347621, #1347619, and
         // others): a lead whose real Pancake order already resolved on its
         // own — Received/Returned/Returning/Partial return/Canceled/
@@ -207,7 +213,6 @@ class LogoutLeadRedistributor
             }
 
             $newTsa = $pool[$tierIndex[$tier] % $pool->count()];
-            $tierIndex[$tier]++;
 
             // Worth surfacing in the audit trail exactly which tier this
             // move used — makes it obvious later why a TSA ended up with a
@@ -221,7 +226,27 @@ class LogoutLeadRedistributor
             // transfer() already uses — the new TSA's overdue-threshold
             // clock starts fresh rather than inheriting however long the
             // lead already sat with the TSA who just logged out.
-            $lead->update(['tsa_id' => $newTsa->id, 'assigned_at' => now()]);
+            //
+            // Conditional claim (2026-11-23, TSA report: "a lead distributed
+            // to one TSA, then also to another" — Gemma/Aguinaldo/Kathleen).
+            // $backlog is a snapshot; two sweeps can run at once (two TSAs
+            // logging in seconds apart at shift start each dispatch
+            // sweepStrandedBacklogs()), and both read the same backlog. A
+            // plain update let the second sweep move a lead the first had
+            // already handed to someone else — who may have dialed it by
+            // then. Only move it if it is still this TSA's, still uncalled
+            // and still undialed right now; otherwise someone else got there
+            // first, so leave it alone.
+            $claimed = Lead::whereKey($lead->id)
+                ->where('tsa_id', $tsa->id)
+                ->where('status', 'assigned')
+                ->whereNull('dialed_at')
+                ->update(['tsa_id' => $newTsa->id, 'assigned_at' => now(), 'updated_at' => now()]);
+            if (! $claimed) {
+                continue;
+            }
+            $tierIndex[$tier]++;
+            $lead->refresh();
 
             LeadActivity::log(
                 $lead, 'transferred',
