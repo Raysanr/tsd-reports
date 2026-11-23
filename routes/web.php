@@ -325,7 +325,7 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules', 'normal-pages
     // separate database of PEAK.CO / M&J / MLC data, admin-only. See
     // App\Support\DataSet and App\Http\Middleware\DataManagementDataset;
     // URL::defaults() fills {dm} in, so route('data.*') needs no change.
-    Route::prefix('{dm}')->where(['dm' => 'data|partners'])->name('data.')->middleware(['role:super_admin,admin,normal,guest', \App\Http\Middleware\DataManagementDataset::class])->group(function () {
+    Route::prefix('{dm}')->where(['dm' => 'data|partners'])->name('data.')->middleware(['role:super_admin,admin,normal,guest', \App\Http\Middleware\DataManagementDataset::class, \App\Http\Middleware\DataManagementMonthLock::class])->group(function () {
         Route::get('/', fn (\Illuminate\Http\Request $request) => redirect(
             $request->session()->get(\App\Http\Middleware\DataManagementDataset::lastPageKey())
                 ?? route(\App\Support\NormalUserPages::firstVisibleDataPage())
@@ -570,6 +570,11 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules', 'normal-pages
             // Product Costs (explicit request, 2026-11-04): the sheet's
             // Variation id -> Product Costs list. Admin-only because it is
             // margin data, same reasoning as Cost Breakdown above.
+            // Lock closed months (2026-11-23) — see DataManagementMonthLock.
+            Route::get('/month-locks', [\App\Http\Controllers\DataManagement\MonthLockController::class, 'index'])->name('month-locks');
+            Route::post('/month-locks', [\App\Http\Controllers\DataManagement\MonthLockController::class, 'store'])->name('month-locks.store');
+            Route::delete('/month-locks', [\App\Http\Controllers\DataManagement\MonthLockController::class, 'destroy'])->name('month-locks.destroy');
+
             Route::get('/product-costs', [\App\Http\Controllers\DataManagement\ProductCostController::class, 'index'])->name('product-costs');
             Route::post('/product-costs', [\App\Http\Controllers\DataManagement\ProductCostController::class, 'store'])->name('product-costs.store');
             Route::patch('/product-costs/lock', [\App\Http\Controllers\DataManagement\ProductCostController::class, 'toggleLock'])->name('product-costs.toggle-lock');

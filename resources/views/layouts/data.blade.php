@@ -190,6 +190,16 @@
             Product Costs
         </a>
         @endif
+        {{-- Month locks (2026-11-23), admins only --}}
+        @if(auth()->user()?->isAtLeastAdmin())
+        <a href="{{ route('data.month-locks') }}"
+           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.month-locks*') ? 'nav-active' : '' }}">
+            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>
+            </svg>
+            Month locks
+        </a>
+        @endif
         @endif
         </div></div></div>
         </div>
@@ -378,6 +388,16 @@
         </div>
         @endif
 
+        {{-- Locked months (2026-11-23): edits to these months are refused. --}}
+        @php $lockedMonths = \App\Support\DmMonthLock::all()->pluck('month')->take(4); @endphp
+        @if($lockedMonths->isNotEmpty() && ! request()->routeIs('data.month-locks'))
+        <div class="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-2.5 text-xs font-mono text-slate-600 dark:text-slate-300">
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg>
+            <span>Locked (read-only): <strong>{{ $lockedMonths->map(fn ($m) => \App\Support\DmMonthLock::label($m))->join(', ') }}</strong></span>
+            @if(auth()->user()?->isAtLeastAdmin())<a href="{{ route('data.month-locks') }}" class="ml-auto font-semibold text-primary hover:underline">Manage month locks</a>@endif
+        </div>
+        @endif
+
         @yield('content')
     </main>
 </div>
@@ -385,6 +405,20 @@
 <div id="toastContainer"
      class="fixed top-4 inset-x-4 sm:inset-x-auto sm:right-4 sm:w-full z-[70] flex flex-col gap-2 max-w-sm pointer-events-none"></div>
 
+<script>
+// A save refused because its month is locked (HTTP 423, DataManagementMonthLock):
+// always tell the user why, whatever the page's own error handling says.
+(function () {
+    const original = window.fetch;
+    window.fetch = async function (...args) {
+        const res = await original.apply(this, args);
+        if (res.status === 423) {
+            res.clone().json().then((d) => window.showToast?.(d.message || 'This month is locked.', 'error')).catch(() => {});
+        }
+        return res;
+    };
+})();
+</script>
 <script>
 (function () {
     const sidebar  = document.getElementById('sidebar');
