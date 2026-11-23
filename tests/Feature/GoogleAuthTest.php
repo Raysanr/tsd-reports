@@ -120,7 +120,7 @@ class GoogleAuthTest extends TestCase
 
     public function test_the_request_status_stays_on_the_login_page_after_a_reload(): void
     {
-        $this->get(route('login'))->assertOk()->assertSee('Good to see you')->assertDontSee('notice notice-', false);
+        $this->get(route('login'))->assertOk()->assertSee('Continue with Google')->assertDontSee('notice notice-', false);
 
         $this->fakeGoogleUser('new@example.com');
         $this->get(route('google.callback'));

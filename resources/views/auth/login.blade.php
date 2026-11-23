@@ -1,6 +1,8 @@
-{{-- Sign-in page — "Bright Bento" design (picked 2026-11-23). Google sign-in
-     only; people not in User Management become access requests. Standalone
-     (not a shared layout; the error pages use layouts.error in the same style). --}}
+{{-- Sign-in page — "Halo" design (picked 2026-11-23): glass card over a honey
+     aurora, rotating motivational headline, orbit of workspace chips. Light +
+     dark (follows the OS). Google sign-in only; people not in User Management
+     become access requests. Standalone (no @vite), so it renders even when the
+     app's assets fail. --}}
 @php
     // one-time errors (deactivated, Google sign-in failed) — red
     $error = $errors->first('email');
@@ -23,137 +25,165 @@
     <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Instrument+Serif:ital@1&display=swap" rel="stylesheet">
     <style>
-        :root { --accent: #FACC15; --ink: #18181b; --muted: #52525b; --soft: #71717a; --ground: #f4f4f5; }
-        * { box-sizing: border-box; }
-        body { margin: 0; min-height: 100vh; background: var(--ground); color: var(--ink); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
-        .page { min-height: 100vh; padding: 24px; display: flex; }
-        .wrap { flex: 1; display: flex; flex-wrap: wrap; gap: 24px; max-width: 1400px; margin: 0 auto; width: 100%; }
-        .panel { flex: 1 1 420px; min-width: 0; background: #fff; border-radius: 28px; padding: 48px 56px; display: flex; flex-direction: column; justify-content: space-between; gap: 40px; }
-        .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 16px; letter-spacing: -0.01em; }
-        .brand-mark { width: 36px; height: 36px; border-radius: 10px; background: var(--ink); display: flex; align-items: center; justify-content: center; }
-        h1 { margin: 0; font-size: 46px; line-height: 1.08; font-weight: 800; letter-spacing: -0.035em; }
-        h1 span { color: #CA8A04; }
-        .lead { margin: 16px 0 0; font-size: 16px; line-height: 1.6; color: var(--muted); }
-        .notice { margin-top: 24px; padding: 14px 16px; border-radius: 16px; font-size: 14px; line-height: 1.5; }
-        .notice-info { background: #fefce8; color: #713f12; }
-        .notice-error { background: #fef2f2; color: #991b1b; }
-        .notice-ok { background: #ecfdf5; color: #065f46; }
-        .notice-link { display: block; margin-top: 8px; font-size: 13px; font-weight: 600; color: inherit; }
-        .google { margin-top: 32px; display: inline-flex; align-items: center; gap: 14px; min-height: 58px; padding: 9px 28px 9px 9px; border-radius: 999px; background: var(--ink); color: #fff; text-decoration: none; font-size: 16px; font-weight: 700; transition: transform .15s ease, box-shadow .15s ease; }
-        .google:hover { transform: translateY(-1px); box-shadow: 0 12px 28px -14px rgba(24,24,27,.7); }
-        .google:focus-visible { outline: 3px solid #CA8A04; outline-offset: 3px; }
-        .google-g { width: 40px; height: 40px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .hint { margin: 20px 0 0; font-size: 13px; line-height: 1.6; color: var(--muted); }
-        .foot { margin: 0; font-size: 12px; color: var(--soft); }
-        .bento { flex: 1.3 1 520px; min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(160px, auto); gap: 24px; }
-        .tile { border-radius: 28px; padding: 28px; background: #fff; }
-        .tile-hero { grid-column: span 2; background: var(--accent); padding: 40px; display: flex; flex-direction: column; justify-content: space-between; gap: 32px; position: relative; overflow: hidden; }
-        .tile-hero .chip { position: relative; align-self: flex-start; padding: 6px 12px; border-radius: 999px; background: rgba(24,24,27,.1); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-        .tile-hero p { position: relative; margin: 0; font-size: 38px; line-height: 1.1; font-weight: 800; letter-spacing: -0.03em; max-width: 480px; }
-        .circle { position: absolute; border-radius: 50%; }
-        .tile-bars { background: var(--ink); display: flex; align-items: flex-end; gap: 10px; }
-        .tile-bars span { flex: 1; border-radius: 10px; }
-        .tile-card { display: flex; flex-direction: column; justify-content: space-between; gap: 20px; }
-        .tile-title { margin: 0; font-size: 19px; font-weight: 700; }
-        .tile-text { margin: 6px 0 0; font-size: 14px; line-height: 1.5; color: var(--muted); }
-        .icon-box { width: 52px; height: 52px; border-radius: 16px; background: #fefce8; display: flex; align-items: center; justify-content: center; }
-        .tile-wide { grid-column: span 2; display: flex; flex-wrap: wrap; align-items: center; gap: 20px; }
-        .dots { display: flex; }
-        .dots span { width: 44px; height: 44px; border-radius: 50%; border: 3px solid #fff; }
-        .dots span + span { margin-left: -12px; }
-        @media (max-width: 720px) {
-            .page { padding: 12px; }
-            .panel { padding: 32px 24px; border-radius: 24px; }
-            h1 { font-size: 36px; }
-            .bento { display: none; } /* phones: just the sign-in */
+        :root {
+            --bg: #F6F4EE; --surface: rgba(255,255,255,.62); --surface-solid: #fff; --stroke: rgba(30,26,12,.08);
+            --fg: #17150F; --muted: #6B6657; --accent: #F2CE4A; --accent-2: #F7A93B; --accent-ink: #1A1508;
+            --btn: #17150F; --btn-fg: #fff;
+            --n-info-bg: #fefce8; --n-info-fg: #713f12; --n-error-bg: #fef2f2; --n-error-fg: #991b1b; --n-ok-bg: #ecfdf5; --n-ok-fg: #065f46;
+            --sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+            --serif: 'Instrument Serif', Georgia, serif;
         }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #0F0E0B; --surface: rgba(30,28,22,.6); --surface-solid: #1C1A15; --stroke: rgba(255,240,200,.09);
+                --fg: #F5F1E6; --muted: #A39D8B; --accent-2: #E08A2C; --btn: #F2CE4A; --btn-fg: #1A1508;
+                --n-info-bg: rgba(242,206,74,.12); --n-info-fg: #F5DC86; --n-error-bg: rgba(239,68,68,.14); --n-error-fg: #FCA5A5; --n-ok-bg: rgba(16,185,129,.14); --n-ok-fg: #6EE7B7;
+                color-scheme: dark;
+            }
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+
+        .aurora { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+        .aurora i { position: absolute; border-radius: 50%; filter: blur(80px); opacity: .75; }
+        .aurora i:nth-child(1) { width: 55vw; height: 55vw; background: var(--accent); right: -10vw; top: -15vw; animation: drift 18s ease-in-out infinite alternate; }
+        .aurora i:nth-child(2) { width: 38vw; height: 38vw; background: var(--accent-2); right: 18vw; bottom: -18vw; opacity: .45; animation: drift 22s ease-in-out infinite alternate-reverse; }
+        .aurora i:nth-child(3) { width: 26vw; height: 26vw; background: var(--accent); left: -8vw; bottom: 10vh; opacity: .3; animation: drift 26s ease-in-out infinite alternate; }
+        @keyframes drift { to { transform: translate(-6vw, 5vh) scale(1.12); } }
+        .grain { position: fixed; inset: 0; pointer-events: none; z-index: 1; opacity: .05; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence baseFrequency='.9' numOctaves='2'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+
+        .page { position: relative; z-index: 2; max-width: 1240px; margin: 0 auto; min-height: 100vh; display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 40px; align-items: center; padding: 32px max(16px, env(safe-area-inset-right, 0px)) 32px max(16px, env(safe-area-inset-left, 0px)); }
+
+        .card { background: var(--surface); backdrop-filter: blur(24px) saturate(1.4); -webkit-backdrop-filter: blur(24px) saturate(1.4); border: 1px solid var(--stroke); border-radius: 32px; padding: clamp(28px, 4vw, 48px); display: grid; gap: 32px; box-shadow: 0 40px 80px -40px rgba(60,45,0,.35); animation: in .8s cubic-bezier(.2,.9,.2,1) both; }
+        @keyframes in { from { transform: translateY(16px); } }
+        .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 16px; flex-wrap: wrap; }
+        .logo { width: 44px; height: 44px; object-fit: contain; display: block; }
+        .pill { margin-left: auto; font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--stroke); color: var(--muted); }
+        h1 { margin: 0; min-height: 2em; font-weight: 800; font-size: clamp(38px, 5vw, 60px); line-height: 1; letter-spacing: -.04em; text-wrap: balance; transition: opacity .4s, transform .4s; }
+        h1.out { opacity: 0; transform: translateY(8px); }
+        h1 em { font-family: var(--serif); font-weight: 400; font-style: italic; letter-spacing: -.01em; background: linear-gradient(90deg, var(--accent-2), var(--accent)); -webkit-background-clip: text; background-clip: text; color: transparent; padding-right: .05em; }
+        .lede { margin: 14px 0 0; color: var(--muted); max-width: 42ch; font-size: 16px; }
+
+        .notice { padding: 14px 16px; border-radius: 16px; font-size: 14px; line-height: 1.5; }
+        .notice-info { background: var(--n-info-bg); color: var(--n-info-fg); }
+        .notice-error { background: var(--n-error-bg); color: var(--n-error-fg); }
+        .notice-ok { background: var(--n-ok-bg); color: var(--n-ok-fg); }
+        .notice-link { display: block; margin-top: 8px; font-size: 13px; font-weight: 600; color: inherit; }
+
+        .actions { display: grid; gap: 14px; }
+        .google { display: flex; align-items: center; gap: 14px; padding: 8px 22px 8px 8px; border-radius: 18px; background: var(--btn); color: var(--btn-fg); text-decoration: none; font-weight: 700; font-size: 16px; position: relative; overflow: hidden; transition: transform .2s; }
+        .google::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.22) 50%, transparent 70%); transform: translateX(-100%); transition: transform .7s; }
+        .google:hover { transform: translateY(-2px); }
+        .google:hover::after { transform: translateX(100%); }
+        .google:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+        .google-g { width: 44px; height: 44px; border-radius: 12px; background: #fff; display: grid; place-items: center; flex-shrink: 0; }
+        .google .chev { margin-left: auto; opacity: .6; }
+        .hint { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--muted); margin: 0; }
+        .hint svg { flex: none; margin-top: 2px; }
+        .foot { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); border-top: 1px solid var(--stroke); padding-top: 20px; }
+
+        .orbit { position: relative; aspect-ratio: 1; width: min(520px, 100%); justify-self: center; }
+        .ring { position: absolute; inset: 8%; border-radius: 50%; border: 1px dashed var(--stroke); }
+        .ring.r2 { inset: 24%; }
+        .core { position: absolute; inset: 36%; border-radius: 50%; background: var(--surface-solid); border: 1px solid var(--stroke); display: grid; place-items: center; text-align: center; box-shadow: 0 20px 60px -20px rgba(242,206,74,.6); }
+        .core b { display: block; font-size: clamp(26px, 3.6vw, 38px); font-weight: 800; letter-spacing: -.03em; line-height: 1; }
+        .core span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; }
+        .chip { position: absolute; background: var(--surface); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--stroke); border-radius: 16px; padding: 10px 14px; display: flex; gap: 10px; align-items: center; font-size: 13px; font-weight: 600; white-space: nowrap; box-shadow: 0 12px 30px -16px rgba(60,45,0,.4); animation: float 6s ease-in-out infinite; }
+        .chip small { display: block; font-weight: 500; color: var(--muted); font-size: 11px; }
+        .chip .ic { width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); }
+        .c1 { top: 4%; left: 4%; } .c2 { top: 20%; right: -2%; animation-delay: -2s; } .c3 { bottom: 14%; left: -2%; animation-delay: -4s; } .c4 { bottom: 2%; right: 10%; animation-delay: -1s; }
+        @keyframes float { 50% { transform: translateY(-10px); } }
+
+        @media (max-width: 880px) {
+            .page { grid-template-columns: 1fr; padding-block: 16px; }
+            .orbit { display: none; } /* phones/tablets: just the sign-in */
+        }
+        @media (prefers-reduced-motion: reduce) { *, *::after { animation: none !important; transition: none !important; } }
     </style>
 </head>
 <body>
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+<div class="grain" aria-hidden="true"></div>
+
 <div class="page">
-    <div class="wrap">
+    <main class="card" aria-labelledby="headline">
+        <div class="brand">
+            <img class="logo" src="{{ asset('images/sellershub-logo.png') }}" alt="" width="44" height="44">
+            TSD Reports Hub
+            <span class="pill">Telesales workspace</span>
+        </div>
 
-        <main class="panel">
-            <div class="brand">
-                <span class="brand-mark">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FACC15" stroke-width="2.2" aria-hidden="true"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 5-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div>
+            <h1 id="headline">Make every call <em>count.</em></h1>
+            <p class="lede">Sign in with your work Google account to open the Telesales workspace.</p>
+        </div>
+
+        <div class="actions">
+            @if(session('status'))
+                <div class="notice notice-info" role="status">{{ session('status') }}</div>
+            @endif
+            @if($error)
+                <div class="notice notice-error" role="alert">{{ $error }}</div>
+            @elseif($requestNotice)
+                @php [$kind, $headline, $detail] = $requestNotice; @endphp
+                <div class="notice notice-{{ $kind }}" role="{{ $kind === 'error' ? 'alert' : 'status' }}">
+                    <strong>{{ $headline }}</strong> {{ $detail }}
+                    <a href="{{ route('login', ['other' => 1]) }}" class="notice-link">Use a different account</a>
+                </div>
+            @endif
+
+            <a href="{{ route('google.redirect') }}" class="google">
+                <span class="google-g">
+                    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 21.3 7.31 24 12 24z"/><path fill="#FBBC05" d="M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62H1.29A11.86 11.86 0 000 12c0 1.94.47 3.76 1.29 5.38l3.98-3.09z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75z"/></svg>
                 </span>
-                TSD Reports Hub
-            </div>
+                Continue with Google
+                <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+            </a>
 
-            <div style="max-width: 420px">
-                <h1>Good to see you<span>.</span></h1>
-                <p class="lead">Sign in with your work Google account to open the Telesales workspace.</p>
+            <p class="hint">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
+                First time here? Signing in sends a request. An admin accepts it, then you're in.
+            </p>
+        </div>
 
-                @if(session('status'))
-                    <div class="notice notice-info" role="status">{{ session('status') }}</div>
-                @endif
-                @if($error)
-                    <div class="notice notice-error" role="alert">{{ $error }}</div>
-                @elseif($requestNotice)
-                    @php [$kind, $headline, $detail] = $requestNotice; @endphp
-                    <div class="notice notice-{{ $kind }}" role="{{ $kind === 'error' ? 'alert' : 'status' }}">
-                        <strong>{{ $headline }}</strong> {{ $detail }}
-                        <a href="{{ route('login', ['other' => 1]) }}" class="notice-link">Use a different account</a>
-                    </div>
-                @endif
+        <div class="foot"><span>For the SH E-Com Telesales team only.</span><span>Supervisors · TSAs · Admins</span></div>
+    </main>
 
-                <a href="{{ route('google.redirect') }}" class="google">
-                    <span class="google-g">
-                        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 21.3 7.31 24 12 24z"/><path fill="#FBBC05" d="M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62H1.29A11.86 11.86 0 000 12c0 1.94.47 3.76 1.29 5.38l3.98-3.09z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75z"/></svg>
-                    </span>
-                    Continue with Google
-                </a>
-
-                <p class="hint">First time here? Signing in sends a request. An admin accepts it, then you're in.</p>
-            </div>
-
-            <p class="foot">For the SH E-Com Telesales team only.</p>
-        </main>
-
-        <section class="bento" aria-label="About the workspace">
-            <div class="tile tile-hero">
-                <span class="circle" style="right: -80px; bottom: -80px; width: 300px; height: 300px; background: rgba(24,24,27,.08)" aria-hidden="true"></span>
-                <span class="circle" style="right: 60px; bottom: 60px; width: 120px; height: 120px; background: rgba(24,24,27,.10)" aria-hidden="true"></span>
-                <span class="chip">Telesales workspace</span>
-                <p>Everything the team needs, in one sign-in.</p>
-            </div>
-
-            <div class="tile tile-bars" aria-hidden="true">
-                <span style="height: 38%; background: #3f3f46"></span>
-                <span style="height: 62%; background: #52525b"></span>
-                <span style="height: 48%; background: #3f3f46"></span>
-                <span style="height: 86%; background: var(--accent)"></span>
-                <span style="height: 70%; background: #52525b"></span>
-            </div>
-
-            <div class="tile tile-card">
-                <span class="icon-box">
-                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#a16207" stroke-width="1.8" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </span>
-                <div>
-                    <p class="tile-title">Private by design</p>
-                    <p class="tile-text">Google sign-in, and only people an admin accepts.</p>
-                </div>
-            </div>
-
-            <div class="tile tile-wide">
-                <div class="dots" aria-hidden="true">
-                    <span style="background: #18181b"></span>
-                    <span style="background: var(--accent)"></span>
-                    <span style="background: #d4d4d8"></span>
-                    <span style="background: #fde68a"></span>
-                </div>
-                <div style="flex: 1; min-width: 200px">
-                    <p class="tile-title">Made for the team</p>
-                    <p class="tile-text">Supervisors, TSAs and admins work from the same place.</p>
-                </div>
-            </div>
-        </section>
-
-    </div>
+    <section class="orbit" aria-label="What's inside the workspace">
+        <div class="ring"></div><div class="ring r2"></div>
+        <div class="core"><div><b>TSD</b><span>Reports Hub</span></div></div>
+        <div class="chip c1"><span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/></svg></span><div>Daily reports<small>Calls &amp; orders</small></div></div>
+        <div class="chip c2"><span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 01-10 0z"/></svg></span><div>Scoreboard<small>Team ranking</small></div></div>
+        <div class="chip c3"><span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 01-2.2 2 19.8 19.8 0 01-8.6-3.1 19.5 19.5 0 01-6-6A19.8 19.8 0 012.1 4.2 2 2 0 014.1 2h3a2 2 0 012 1.7c.1 1 .4 1.9.7 2.8a2 2 0 01-.5 2.1L8 9.9a16 16 0 006 6l1.3-1.3a2 2 0 012.1-.5c.9.3 1.8.6 2.8.7a2 2 0 011.7 2z"/></svg></span><div>Call Tracker<small>Leads &amp; logs</small></div></div>
+        <div class="chip c4"><span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg></span><div>Archive<small>TSA records</small></div></div>
+    </section>
 </div>
+
+<script>
+(function () {
+    var lines = [
+        ['Make every call', 'count.'],
+        ['Your next yes is', 'one call away.'],
+        ["Today's target starts", 'with you.'],
+        ['Small wins build', 'the board.'],
+        ['Show up. Dial in.', 'Close strong.']
+    ];
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var h = document.getElementById('headline'), i = 0;
+    setInterval(function () {
+        h.classList.add('out');
+        setTimeout(function () {
+            i = (i + 1) % lines.length;
+            h.textContent = lines[i][0] + ' ';
+            var em = document.createElement('em');
+            em.textContent = lines[i][1];
+            h.appendChild(em);
+            h.classList.remove('out');
+        }, 400);
+    }, 4500);
+})();
+</script>
 </body>
 </html>
