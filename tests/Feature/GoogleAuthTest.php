@@ -69,4 +69,53 @@ class GoogleAuthTest extends TestCase
         $response->assertRedirect(route('login'));
         $this->assertGuest();
     }
+    public function test_an_unknown_google_sign_in_becomes_an_access_request_an_admin_can_accept(): void
+    {
+        $this->fakeGoogleUser('Stranger@Example.com', 'g-999', 'New Person');
+        $this->get(route('google.callback'))->assertRedirect(route('login'))->assertSessionHasErrors('email');
+        $this->get(route('google.callback')); // trying again doesn't duplicate
+        $this->assertGuest();
+        $req = \App\Models\AccessRequest::sole();
+        $this->assertSame('stranger@example.com', $req->email);
+        $this->assertSame('pending', $req->status);
+        $this->assertSame(2, $req->attempts);
+
+        $admin = User::factory()->create(['role' => 'super_admin']);
+        $this->actingAs($admin)->get(route('hub.users'))->assertOk()->assertSee('Access requests')->assertSee('stranger@example.com');
+        $this->post(route('hub.users.requests.accept', $req), ['role' => 'normal'])->assertSessionHas('success');
+        $this->assertDatabaseHas('users', ['email' => 'stranger@example.com', 'role' => 'normal', 'is_active' => true, 'google_id' => 'g-999']);
+        $this->assertSame('approved', $req->fresh()->status);
+
+        // accepted: the next Google sign-in goes straight in
+        auth()->logout();
+        $this->get(route('google.callback'))->assertRedirect(route('hub'));
+        $this->assertAuthenticated();
+    }
+
+    public function test_a_rejected_access_request_stays_blocked(): void
+    {
+        $this->fakeGoogleUser('nope@example.com');
+        $this->get(route('google.callback'));
+        $req = \App\Models\AccessRequest::sole();
+
+        $admin = User::factory()->create(['role' => 'super_admin']);
+        $this->actingAs($admin)->post(route('hub.users.requests.reject', $req))->assertSessionHas('success');
+        auth()->logout();
+
+        $this->get(route('google.callback'))->assertRedirect(route('login'))
+            ->assertSessionHasErrors(['email' => 'Your request to access this system was declined. Ask an admin if this is a mistake.']);
+        $this->assertGuest();
+        $this->assertDatabaseMissing('users', ['email' => 'nope@example.com']);
+    }
+
+    public function test_only_people_who_manage_users_can_accept_requests(): void
+    {
+        $this->fakeGoogleUser('someone@example.com');
+        $this->get(route('google.callback'));
+        $req = \App\Models\AccessRequest::sole();
+
+        $normal = User::factory()->create(['role' => 'normal']);
+        $this->actingAs($normal)->post(route('hub.users.requests.accept', $req), ['role' => 'normal'])->assertForbidden();
+        $this->assertDatabaseMissing('users', ['email' => 'someone@example.com']);
+    }
 }

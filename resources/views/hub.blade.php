@@ -493,13 +493,18 @@
     </div>
     <nav class="topnav" aria-label="Account">
         @if(\App\Support\NormalUserPages::anyVisible(['user-management', 'tsa-management', 'product-management']))
+        @php
+            // access requests waiting (2026-11-23) — badge for whoever can manage users
+            $waitingRequests = \App\Support\NormalUserPages::canSee('user-management')
+                ? \App\Models\AccessRequest::where('status', 'pending')->count() : 0;
+        @endphp
         <div class="manage" data-manage-dropdown>
             <button type="button" class="nav-btn manage-dropdown-toggle" aria-haspopup="true" aria-expanded="false">
-                Management
+                Management @if($waitingRequests) <span style="margin-left:4px;border-radius:999px;background:#f59e0b;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;">{{ $waitingRequests }}</span>@endif
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6"/></svg>
             </button>
             <div class="manage-menu">
-                @if(\App\Support\NormalUserPages::canSee('user-management'))<a href="{{ route('hub.users') }}">User Management</a>@endif
+                @if(\App\Support\NormalUserPages::canSee('user-management'))<a href="{{ route('hub.users') }}">User Management @if($waitingRequests) <span title="{{ $waitingRequests }} access {{ \Illuminate\Support\Str::plural('request', $waitingRequests) }} waiting" style="margin-left:4px;border-radius:999px;background:#f59e0b;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;">{{ $waitingRequests }}</span>@endif</a>@endif
                 @if(\App\Support\NormalUserPages::canSee('tsa-management'))<a href="{{ route('hub.tsa-management') }}">TSA Management</a>@endif
                 @if(\App\Support\NormalUserPages::canSee('product-management'))<a href="{{ route('hub.product-management') }}">Product Management</a>@endif
             </div>

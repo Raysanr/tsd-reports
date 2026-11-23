@@ -93,9 +93,21 @@ class AuthController extends Controller
         // No auto-create: accounts only ever come from User Management now. A
         // stranger's Google account matching no existing row is not "sign up",
         // it's a dead end — the whole point of closing public registration.
+        // Access requests (2026-11-23): instead of a dead end, the attempt
+        // becomes a request an admin Accepts or Rejects in User Management.
+        // Nobody gets in until accepted.
         if (!$user) {
+            $req = \App\Models\AccessRequest::recordAttempt(
+                (string) $googleUser->getEmail(), $googleUser->getName(), $googleUser->getId(), $googleUser->getAvatar()
+            );
+            if ($req->wasRecentlyCreated) {
+                \App\Support\ActivityLogger::log('access.requested', $req, "Access requested by {$req->name} ({$req->email})");
+            }
+
             return redirect()->route('login')->withErrors([
-                'email' => 'No account found for that Google email — ask an admin to add you first.',
+                'email' => $req->status === \App\Models\AccessRequest::REJECTED
+                    ? 'Your request to access this system was declined. Ask an admin if this is a mistake.'
+                    : 'Your request to access this system was sent. An admin will review it — sign in again once you\'ve been accepted.',
             ]);
         }
 

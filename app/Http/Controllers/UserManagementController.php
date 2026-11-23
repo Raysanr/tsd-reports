@@ -39,6 +39,9 @@ class UserManagementController extends Controller
             'users'           => $this->usersForManagement(),
             'assignableRoles' => $request->user()->assignableRoles(),
             'layout'          => 'layouts.hub-manage',
+            // Sign-in requests from people not in User Management (2026-11-23)
+            'accessRequests'  => \App\Models\AccessRequest::whereIn('status', [\App\Models\AccessRequest::PENDING, \App\Models\AccessRequest::REJECTED])
+                ->orderByRaw("case status when 'pending' then 0 else 1 end")->latest('last_attempt_at')->limit(50)->get(),
         ]);
     }
 

@@ -174,6 +174,8 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules', 'normal-pages
         // separate view+route pair, not a separate feature, so there's only
         // ever one place these business rules live.
         Route::get('/hub/users',                    [UserManagementController::class, 'hubIndex'])->name('hub.users');
+        Route::post('/hub/users/requests/{accessRequest}/accept', [\App\Http\Controllers\AccessRequestController::class, 'accept'])->name('hub.users.requests.accept');
+        Route::post('/hub/users/requests/{accessRequest}/reject', [\App\Http\Controllers\AccessRequestController::class, 'reject'])->name('hub.users.requests.reject');
         Route::post('/hub/users',                    [UserManagementController::class, 'store'])->name('hub.users.store');
         Route::put('/hub/users/{user}',               [UserManagementController::class, 'update'])->name('hub.users.update');
         Route::patch('/hub/users/{user}/toggle-active', [UserManagementController::class, 'toggleActive'])->name('hub.users.toggle-active');

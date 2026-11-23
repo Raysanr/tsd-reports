@@ -22,6 +22,53 @@
         </button>
     </div>
 
+    {{-- Access requests (2026-11-23): "Sign in with Google" by someone not
+         listed below lands here — nobody gets in until an admin accepts. --}}
+    @php
+        $accessRequests ??= collect();
+        $pendingRequests = $accessRequests->where('status', 'pending');
+        $rejectedRequests = $accessRequests->where('status', 'rejected');
+        $acceptRoles = array_values(array_diff($assignableRoles, ['guest']));
+    @endphp
+    @if($accessRequests->isNotEmpty())
+    <div class="bg-white dark:bg-slate-900 rounded-xl border {{ $pendingRequests->isNotEmpty() ? 'border-amber-300 dark:border-amber-700' : 'border-yellow-100 dark:border-yellow-900' }} shadow-sm overflow-hidden">
+        <div class="px-6 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+            <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Access requests
+                @if($pendingRequests->isNotEmpty())<span class="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-bold text-white">{{ $pendingRequests->count() }} waiting</span>@endif
+            </p>
+            <p class="text-[11px] text-slate-400">People who tried "Sign in with Google" but aren't listed below</p>
+        </div>
+        <div class="divide-y divide-slate-100 dark:divide-slate-700">
+            @foreach($pendingRequests->concat($rejectedRequests) as $req)
+            <div class="px-6 py-3 flex flex-wrap items-center gap-3 {{ $req->status === 'rejected' ? 'opacity-60' : '' }}">
+                <div class="flex-1 min-w-48">
+                    <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">{{ $req->name }}
+                        @if($req->status === 'rejected')<span class="ml-1 text-[10px] font-semibold text-rose-700 bg-rose-100 dark:bg-rose-900/40 dark:text-rose-300 px-1.5 py-0.5 rounded">Rejected</span>@endif
+                    </p>
+                    <p class="text-xs font-mono text-slate-500 dark:text-slate-400">{{ $req->email }}</p>
+                    <p class="text-[11px] text-slate-400">Last tried {{ $req->last_attempt_at?->diffForHumans() }} · {{ $req->attempts }} {{ \Illuminate\Support\Str::plural('time', $req->attempts) }}</p>
+                </div>
+                <form method="POST" action="{{ route('hub.users.requests.accept', $req) }}" class="flex items-center gap-2">
+                    @csrf
+                    <select name="role" required class="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1.5 text-xs" aria-label="Role for {{ $req->email }}">
+                        @foreach($acceptRoles as $role)
+                        <option value="{{ $role }}" @selected($role === 'normal')>{{ \App\Models\User::ROLE_LABELS[$role] }}</option>
+                        @endforeach
+                    </select>
+                    <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg cursor-pointer">Accept</button>
+                </form>
+                @if($req->status === 'pending')
+                <form method="POST" action="{{ route('hub.users.requests.reject', $req) }}">
+                    @csrf
+                    <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/30 dark:text-rose-300 rounded-lg cursor-pointer">Reject</button>
+                </form>
+                @endif
+            </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
     <div class="bg-white dark:bg-slate-900 rounded-xl border border-yellow-100 dark:border-yellow-900 shadow-sm overflow-hidden">
         <div class="divide-y divide-slate-100 dark:divide-slate-700 max-h-[calc(100vh-260px)] overflow-y-auto">
             @foreach($users as $user)
