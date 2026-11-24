@@ -1988,47 +1988,6 @@ class LeadController extends Controller
     }
 
     /**
-     * Unsaved-outcome warning (2026-11-23): TSAs were dialing lead after
-     * lead without ever saving an outcome (production: 0 saved since Oct 31
-     * across ~320 dials a day). Before each dial, calls.js asks this for
-     * the viewer's LAST dialed lead today; if it's still theirs and still
-     * has no saved outcome (status != 'called'), the browser shows a
-     * warning with "Save it now" / "Call anyway". Only the last dial is
-     * checked, so leads from before this existed never nag. Admins without
-     * a TSA are never warned.
-     */
-    public function pendingOutcome(Request $request)
-    {
-        $user = Auth::user();
-        if (!$user->tsa_id) {
-            return response()->json(['lead' => null]);
-        }
-
-        $lastLeadId = LeadActivity::where('user_id', $user->id)
-            ->where('type', 'call_clicked')
-            ->where('created_at', '>=', today())
-            ->orderByDesc('id')
-            ->value('lead_id');
-
-        $lead = $lastLeadId ? Lead::find($lastLeadId) : null;
-
-        if (!$lead
-            || (string) $lead->id === (string) $request->query('next')
-            || $lead->status === 'called'
-            || $lead->tsa_id !== $user->tsa_id) {
-            return response()->json(['lead' => null]);
-        }
-
-        return response()->json(['lead' => [
-            'id'           => $lead->id,
-            'orderId'      => $lead->pancake_order_id,
-            'customerName' => $lead->customer_name ?: 'this customer',
-            'dialedAt'     => $lead->dialed_at?->format('g:i A'),
-            'url'          => route('calls.leads.index', ['q' => $lead->pancake_order_id]),
-        ]]);
-    }
-
-    /**
      * "End Call" in the Calling modal (explicit request, 2026-08-20) — flips
      * that TSA straight to Wrap Up the instant the button's clicked, rather
      * than only via CallEventController's webhook once the phone itself

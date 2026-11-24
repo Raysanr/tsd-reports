@@ -769,7 +769,34 @@ function pollLeadsTable(forceUrl, skipFocusGuard) {
                 history.replaceState({}, '', forceUrl);
             }
 
+            // Unsaved Outcome picks live only in the row's DOM until Save —
+            // root-caused 2026-11-24: this wholesale innerHTML swap (every
+            // 30s, plus Auto-call's two forced refreshes after each dial)
+            // silently wiped tags a TSA had picked but not saved yet, so
+            // Save then found an empty field and just reopened the picker.
+            // Carry the picks (and callback time) over to the new rows.
+            const unsaved = new Map();
+            container.querySelectorAll('.disposition-picker').forEach((picker) => {
+                const tags = getSelectedTags(picker);
+                const cb = picker.closest('form')?.querySelector('.callback-at-input')?.value || '';
+                if (tags.length || cb) unsaved.set(picker.dataset.leadId, { tags, cb });
+            });
+            const openPickerLeadId = activeDispositionPicker?.dataset.leadId;
+
             container.innerHTML = html;
+
+            unsaved.forEach(({ tags, cb }, leadId) => {
+                const picker = container.querySelector(`.disposition-picker[data-lead-id="${CSS.escape(leadId)}"]`);
+                if (!picker) return; // saved elsewhere or no longer in this list
+                if (leadId === openPickerLeadId) activeDispositionPicker = picker;
+                if (tags.length) setSelectedTags(picker, tags);
+                const cbInput = picker.closest('form')?.querySelector('.callback-at-input');
+                if (cbInput && cb) { cbInput.value = cb; updateCallbackAtPreview(cbInput); }
+            });
+            if (openPickerLeadId && activeDispositionPicker && !activeDispositionPicker.isConnected) {
+                const fresh = container.querySelector(`.disposition-picker[data-lead-id="${CSS.escape(openPickerLeadId)}"]`);
+                if (fresh) activeDispositionPicker = fresh;
+            }
 
             // Last -> Invert -> Play: for every row present before AND after,
             // jump it back to its old (First) position with no transition,
@@ -3616,76 +3643,6 @@ document.addEventListener('click', (e) => {
         return;
     }
 
-    // Unsaved-outcome warning (2026-11-23) — before dialing, check the
-    // TSA's last dialed lead has a saved outcome (LeadController::
-    // pendingOutcome()). Covers Auto-call too, since it dials by clicking
-    // a link through this same handler.
-    if (leadId) {
-        e.preventDefault();
-        checkPendingOutcome(leadId).then((pending) => {
-            const go = () => startDial(link, leadId, null);
-            if (pending) showPendingOutcomeWarning(pending, go);
-            else go();
-        });
-        return;
-    }
-
-    startDial(link, leadId, e);
-});
-
-async function checkPendingOutcome(nextLeadId) {
-    try {
-        const res = await fetch(`/calls/leads/pending-outcome?next=${encodeURIComponent(nextLeadId)}`, { headers: { Accept: 'application/json' } });
-        if (!res.ok) return null;
-        return (await res.json()).lead || null;
-    } catch (e) {
-        return null; // never block a call because the check itself failed
-    }
-}
-
-function escapeOutcomeText(s) {
-    return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
-function showPendingOutcomeWarning(pending, onCallAnyway) {
-    document.getElementById('pendingOutcomeModal')?.remove();
-    const wrap = document.createElement('div');
-    wrap.id = 'pendingOutcomeModal';
-    wrap.className = 'fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4';
-    wrap.innerHTML = `
-        <div class="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl p-6" role="alertdialog" aria-modal="true" aria-labelledby="pendingOutcomeTitle">
-            <div class="flex items-start gap-3">
-                <span class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 shrink-0">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.008v.008H12v-.008zM10.34 3.94L1.82 18a1.875 1.875 0 001.6 2.82h17.16a1.875 1.875 0 001.6-2.82L13.66 3.94a1.875 1.875 0 00-3.32 0z"/></svg>
-                </span>
-                <div class="min-w-0">
-                    <h2 id="pendingOutcomeTitle" class="text-base font-bold text-slate-800 dark:text-slate-100">Outcome not saved</h2>
-                    <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                        You called <strong>${escapeOutcomeText(pending.customerName)}</strong> (#${escapeOutcomeText(pending.orderId)})${pending.dialedAt ? ' at ' + escapeOutcomeText(pending.dialedAt) : ''} but didn't save the outcome.
-                        Pick a tag under Outcome and click <strong>Save</strong> before calling the next customer.
-                    </p>
-                </div>
-            </div>
-            <div class="mt-5 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
-                <button type="button" data-po="anyway" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer">Call anyway</button>
-                <a href="${escapeOutcomeText(pending.url)}" data-po="save" class="px-4 py-2 rounded-lg text-sm font-semibold text-center text-white bg-primary hover:opacity-90">Save it now</a>
-            </div>
-        </div>`;
-    document.body.appendChild(wrap);
-
-    const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey); };
-    const onKey = (ev) => { if (ev.key === 'Escape') close(); };
-    document.addEventListener('keydown', onKey);
-    wrap.addEventListener('click', (ev) => {
-        if (ev.target === wrap) close();
-        if (ev.target.closest('[data-po="anyway"]')) { close(); onCallAnyway(); }
-    });
-    wrap.querySelector('[data-po="save"]')?.focus();
-}
-
-// The dial itself — run straight from the click (e = the click event) or
-// after the outcome check (e = null, the click's default already prevented).
-function startDial(link, leadId, e) {
     window.openCallingModal(link.dataset.name, link.textContent.trim(), link.dataset.dialHost, leadId);
 
     // A click here should show up on TSA Logs, not just real status changes
@@ -3726,7 +3683,7 @@ function startDial(link, leadId, e) {
     // MacroDroid's HTTP server sends no CORS headers and the response isn't
     // needed anyway, just the side effect of it receiving the request.
     if (link.dataset.dialHost) {
-        e?.preventDefault(); // this path actually dials — a tel: handoff on top would be redundant/confusing
+        e.preventDefault(); // this path actually dials — a tel: handoff on top would be redundant/confusing
         const url = `http://${link.dataset.dialHost}/dial?number=${encodeURIComponent(link.dataset.dialNumber || '')}`;
         fetch(url, { mode: 'no-cors' }).catch(() => {});
         // Tracked so a later accidental Close can be resumed into instead
@@ -3740,10 +3697,8 @@ function startDial(link, leadId, e) {
     // natively). Best-effort only: whether anything happens depends on
     // whatever's registered for tel: on whoever's viewing this page. Never
     // tracked as an active call — there's no Mute/End Call to resume into
-    // without a dial-host. After the outcome check the click's default was
-    // already prevented, so hand off to tel: by hand.
-    if (!e && link.href) window.location.href = link.href;
-}
+    // without a dial-host.
+});
 
 // Sidebar Leads group — a sibling button next to the Leads link, not nested
 // inside it (a <button> can't legally nest inside an <a>), so this only
@@ -4654,8 +4609,7 @@ function swapInputsForSnapshot(root) {
     // dial; the browser only holds off while the calling screen is open.
     function inCall() {
         const modal = document.getElementById('callingModal');
-        // also hold while the unsaved-outcome warning is open (2026-11-23)
-        return !!(modal && !modal.classList.contains('hidden')) || !!document.getElementById('pendingOutcomeModal');
+        return !!(modal && !modal.classList.contains('hidden'));
     }
 
     function dial(lead) {

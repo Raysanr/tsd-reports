@@ -200,7 +200,6 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules', 'normal-pages
         // binding lookup and 404 (same reasoning the block below this one
         // already documents for its own ordering).
         Route::get('/leads/recently-called', [\App\Http\Controllers\CallTracker\LeadController::class, 'recentlyCalled'])->name('leads.recently-called');
-        Route::get('/leads/pending-outcome', [\App\Http\Controllers\CallTracker\LeadController::class, 'pendingOutcome'])->name('leads.pending-outcome');
         Route::get('/leads/{lead}', [\App\Http\Controllers\CallTracker\LeadController::class, 'show'])->name('leads.show');
         Route::get('/leads/{lead}/conversation', [\App\Http\Controllers\CallTracker\LeadController::class, 'conversation'])->name('leads.conversation');
         Route::post('/leads/{lead}/conversation/reply', [\App\Http\Controllers\CallTracker\LeadController::class, 'replyConversation'])->name('leads.conversation.reply');
