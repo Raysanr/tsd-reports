@@ -504,6 +504,7 @@
 {{-- Personal accent (Settings → Appearance, 2026-10-30). --}}
 @php $hubThemeCss = \App\Support\ThemeColor::hubCss(); @endphp
 @if($hubThemeCss)<style id="themeColorVars">{!! $hubThemeCss !!}</style>@endif
+@include('partials.login-accent-memory')
     @include('partials.page-nav')
 </head>
 <body>

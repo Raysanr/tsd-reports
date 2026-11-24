@@ -35,13 +35,11 @@
             --sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
             --serif: 'Instrument Serif', Georgia, serif;
         }
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --bg: #0F0E0B; --surface: rgba(30,28,22,.6); --surface-solid: #1C1A15; --stroke: rgba(255,240,200,.09);
-                --fg: #F5F1E6; --muted: #A39D8B; --accent-2: #E08A2C; --btn: #F2CE4A; --btn-fg: #1A1508;
-                --n-info-bg: rgba(242,206,74,.12); --n-info-fg: #F5DC86; --n-error-bg: rgba(239,68,68,.14); --n-error-fg: #FCA5A5; --n-ok-bg: rgba(16,185,129,.14); --n-ok-fg: #6EE7B7;
-                color-scheme: dark;
-            }
+        html.dark {
+            --bg: #0F0E0B; --surface: rgba(30,28,22,.6); --surface-solid: #1C1A15; --stroke: rgba(255,240,200,.09);
+            --fg: #F5F1E6; --muted: #A39D8B; --accent-2: #E08A2C; --btn: #F2CE4A; --btn-fg: #1A1508;
+            --n-info-bg: color-mix(in srgb, var(--accent) 12%, transparent); --n-info-fg: #F5DC86; --n-error-bg: rgba(239,68,68,.14); --n-error-fg: #FCA5A5; --n-ok-bg: rgba(16,185,129,.14); --n-ok-fg: #6EE7B7;
+            color-scheme: dark;
         }
         * { box-sizing: border-box; }
         body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
@@ -87,7 +85,7 @@
         .orbit { position: relative; aspect-ratio: 1; width: min(520px, 100%); justify-self: center; }
         .ring { position: absolute; inset: 8%; border-radius: 50%; border: 1px dashed var(--stroke); }
         .ring.r2 { inset: 24%; }
-        .core { position: absolute; inset: 36%; border-radius: 50%; background: var(--surface-solid); border: 1px solid var(--stroke); display: grid; place-items: center; text-align: center; box-shadow: 0 20px 60px -20px rgba(242,206,74,.6); }
+        .core { position: absolute; inset: 36%; border-radius: 50%; background: var(--surface-solid); border: 1px solid var(--stroke); display: grid; place-items: center; text-align: center; box-shadow: 0 20px 60px -20px color-mix(in srgb, var(--accent) 60%, transparent); }
         .core b { display: block; font-size: clamp(26px, 3.6vw, 38px); font-weight: 800; letter-spacing: -.03em; line-height: 1; }
         .core span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; }
         .chip { position: absolute; background: var(--surface); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--stroke); border-radius: 16px; padding: 10px 14px; display: flex; gap: 10px; align-items: center; font-size: 13px; font-weight: 600; white-space: nowrap; box-shadow: 0 12px 30px -16px rgba(60,45,0,.4); animation: float 6s ease-in-out infinite; }
@@ -101,7 +99,7 @@
         .ring, .core, .chip { translate: calc(var(--px) * var(--d, 0) * 1px) calc(var(--py) * var(--d, 0) * 1px); }
         .ring { --d: 6; } .ring.r2 { --d: 14; } .core { --d: 22; }
         .c1 { --d: 38; } .c2 { --d: 30; } .c3 { --d: 34; } .c4 { --d: 44; }
-        .orbit::before { content: ""; position: absolute; inset: 10%; border-radius: 50%; pointer-events: none; background: radial-gradient(circle at calc(50% + var(--px) * 30%) calc(50% + var(--py) * 30%), rgba(255,236,160,.35), transparent 55%); }
+        .orbit::before { content: ""; position: absolute; inset: 10%; border-radius: 50%; pointer-events: none; background: radial-gradient(circle at calc(50% + var(--px) * 30%) calc(50% + var(--py) * 30%), color-mix(in srgb, var(--accent) 35%, transparent), transparent 55%); }
         .chip { transition: scale .25s cubic-bezier(.2,.9,.2,1), box-shadow .25s; }
         .chip:hover { scale: 1.07; box-shadow: 0 18px 40px -14px rgba(60,45,0,.55); }
         .core b { transition: letter-spacing .4s; }
@@ -112,7 +110,39 @@
             .orbit { display: none; } /* phones/tablets: just the sign-in */
         }
         @media (prefers-reduced-motion: reduce) { *, *::after { animation: none !important; transition: none !important; } }
+        /* Personal accent from Settings → Appearance, remembered in this
+           browser by partials/login-accent-memory (2026-11-24). */
+        html.custom-accent { --accent-2: color-mix(in oklab, var(--accent) 72%, #000); }
+        html.dark.custom-accent { --accent-2: color-mix(in oklab, var(--accent) 70%, #000); --btn: var(--accent); --btn-fg: var(--accent-ink); }
+
+        /* Light / dark switch — same saved choice as the app (localStorage 'theme'). */
+        .theme-toggle { width: 34px; height: 34px; border-radius: 999px; border: 1px solid var(--stroke); background: transparent; color: var(--muted); display: grid; place-items: center; cursor: pointer; transition: color .2s, border-color .2s, background .2s; }
+        .theme-toggle:hover { color: var(--fg); background: var(--surface); }
+        .theme-toggle:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+        .theme-toggle svg { width: 16px; height: 16px; }
+        .theme-toggle .moon { display: block; } .theme-toggle .sun { display: none; }
+        html.dark .theme-toggle .moon { display: none; } html.dark .theme-toggle .sun { display: block; }
     </style>
+    <script>
+        (function () {
+            var stored = null;
+            try { stored = localStorage.getItem('theme'); } catch (e) {}
+            var dark = stored ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+            if (dark) document.documentElement.classList.add('dark');
+        })();
+        (function () {
+            try {
+                var h = localStorage.getItem('tsdLoginAccent');
+                if (!/^#[0-9A-F]{6}$/i.test(h || '')) return;
+                var n = parseInt(h.slice(1), 16), lin = function (c) { c /= 255; return c <= .03928 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4); };
+                var L = .2126 * lin(n >> 16 & 255) + .7152 * lin(n >> 8 & 255) + .0722 * lin(n & 255);
+                var root = document.documentElement;
+                root.style.setProperty('--accent', h);
+                root.style.setProperty('--accent-ink', L > .35 ? '#1A1508' : '#FFFFFF');
+                root.classList.add('custom-accent');
+            } catch (e) {}
+        })();
+    </script>
 </head>
 <body>
 <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
@@ -124,6 +154,10 @@
             <img class="logo" src="{{ asset('images/sellershub-logo.png') }}" alt="" width="44" height="44">
             TSD Reports Hub
             <span class="pill">Telesales workspace</span>
+            <button type="button" class="theme-toggle" id="themeToggle" aria-label="Switch to dark mode" title="Light / dark mode">
+                <svg class="moon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z"/></svg>
+                <svg class="sun" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z"/></svg>
+            </button>
         </div>
 
         <div>
@@ -215,6 +249,19 @@
         }, 400);
     }, 4500);
 })();
+</script>
+<script>
+    (function () {
+        var btn = document.getElementById('themeToggle');
+        if (!btn) return;
+        var sync = function () { btn.setAttribute('aria-label', document.documentElement.classList.contains('dark') ? 'Switch to light mode' : 'Switch to dark mode'); };
+        sync();
+        btn.addEventListener('click', function () {
+            var isDark = document.documentElement.classList.toggle('dark');
+            try { localStorage.setItem('theme', isDark ? 'dark' : 'light'); } catch (e) {}
+            sync();
+        });
+    })();
 </script>
 </body>
 </html>
