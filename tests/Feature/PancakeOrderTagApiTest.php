@@ -705,4 +705,27 @@ class PancakeOrderTagApiTest extends TestCase
         $this->assertCount(1, $afterAdd['tags']);
         $this->assertSame('Confirmed', $afterAdd['tags'][0]['name']);
     }
+
+    /** 2026-11-24, order #1396598: a status change right after a note save
+     *  wrote the note back to empty. Writes to one order now take turns
+     *  through a per-order lock that is released after each write. */
+    public function test_a_note_then_a_status_change_on_the_same_order_keeps_the_note_and_releases_the_lock(): void
+    {
+        $order = ['id' => 77, 'status' => 0, 'note' => null, 'tags' => []];
+        Http::fake(function ($request) use (&$order) {
+            if ($request->method() === 'PUT') {
+                $order = $request->data();
+            }
+            return Http::response(['success' => true, 'data' => $order], 200);
+        });
+
+        $this->actingAs(\App\Models\User::create(['name' => 'Caroline', 'email' => 'c@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa']));
+        $this->assertTrue($this->api->updateNotes('77', 'yna-upsell 700', null));
+        $this->assertTrue($this->api->updateStatus('77', 20));
+
+        $this->assertSame('yna-upsell 700', $order['note']);
+        $this->assertSame(20, $order['status']);
+        $this->assertTrue(\Illuminate\Support\Facades\Cache::lock('pancake_order_write_77', 5)->get(), 'lock must be free after the writes');
+    }
+
 }

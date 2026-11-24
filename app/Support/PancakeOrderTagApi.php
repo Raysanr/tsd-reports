@@ -155,6 +155,13 @@ class PancakeOrderTagApi
      */
     public function addTagsToOrder(string $orderId, array $tagNames, ?int $skipIfEditedWithinSeconds = null): array
     {
+        $args = func_get_args();
+
+        return $this->withOrderWriteLock($orderId, fn () => $this->addTagsToOrderUnlocked(...$args));
+    }
+
+    private function addTagsToOrderUnlocked(string $orderId, array $tagNames, ?int $skipIfEditedWithinSeconds = null): array
+    {
         $this->lastWriteSkippedRecentEdit = false;
         $apiKey = Setting::get('pancake_api_key', '');
         $shopId = Setting::get('shop_id', '');
@@ -390,6 +397,13 @@ class PancakeOrderTagApi
      */
     public function updateAssignee(string $orderId, ?string $staffId): bool
     {
+        $args = func_get_args();
+
+        return $this->withOrderWriteLock($orderId, fn () => $this->updateAssigneeUnlocked(...$args));
+    }
+
+    private function updateAssigneeUnlocked(string $orderId, ?string $staffId): bool
+    {
         $apiKey = Setting::get('pancake_api_key', '');
         $shopId = Setting::get('shop_id', '');
         if (empty($apiKey) || empty($shopId)) {
@@ -446,6 +460,13 @@ class PancakeOrderTagApi
      * as Pancake's own empty-state behavior).
      */
     public function updateItemAssignee(string $orderId, string $variationId, ?string $staffId): bool
+    {
+        $args = func_get_args();
+
+        return $this->withOrderWriteLock($orderId, fn () => $this->updateItemAssigneeUnlocked(...$args));
+    }
+
+    private function updateItemAssigneeUnlocked(string $orderId, string $variationId, ?string $staffId): bool
     {
         $apiKey = Setting::get('pancake_api_key', '');
         $shopId = Setting::get('shop_id', '');
@@ -769,6 +790,13 @@ class PancakeOrderTagApi
      */
     public function updateShippingAddress(string $orderId, array $shippingAddress): bool
     {
+        $args = func_get_args();
+
+        return $this->withOrderWriteLock($orderId, fn () => $this->updateShippingAddressUnlocked(...$args));
+    }
+
+    private function updateShippingAddressUnlocked(string $orderId, array $shippingAddress): bool
+    {
         // Hard rule (2026-10-20): customer details (address, notes) are only
         // ever written for a signed-in person who changed them — never by a
         // scheduled job or any other automation. A job that calls this is
@@ -860,6 +888,13 @@ class PancakeOrderTagApi
      */
     public function updateNotes(string $orderId, ?string $note, ?string $notePrint): bool
     {
+        $args = func_get_args();
+
+        return $this->withOrderWriteLock($orderId, fn () => $this->updateNotesUnlocked(...$args));
+    }
+
+    private function updateNotesUnlocked(string $orderId, ?string $note, ?string $notePrint): bool
+    {
         // Hard rule (2026-10-20): customer details (address, notes) are only
         // ever written for a signed-in person who changed them — never by a
         // scheduled job or any other automation. A job that calls this is
@@ -925,6 +960,13 @@ class PancakeOrderTagApi
      */
     public function removeTagFromOrder(string $orderId, string $tagName): bool
     {
+        $args = func_get_args();
+
+        return $this->withOrderWriteLock($orderId, fn () => $this->removeTagFromOrderUnlocked(...$args));
+    }
+
+    private function removeTagFromOrderUnlocked(string $orderId, string $tagName): bool
+    {
         $apiKey = Setting::get('pancake_api_key', '');
         $shopId = Setting::get('shop_id', '');
         if (empty($apiKey) || empty($shopId)) {
@@ -982,6 +1024,13 @@ class PancakeOrderTagApi
      * along (Confirm it, mark it Packing, Shipped, etc).
      */
     public function updateStatus(string $orderId, int $statusCode): bool
+    {
+        $args = func_get_args();
+
+        return $this->withOrderWriteLock($orderId, fn () => $this->updateStatusUnlocked(...$args));
+    }
+
+    private function updateStatusUnlocked(string $orderId, int $statusCode): bool
     {
         $apiKey = Setting::get('pancake_api_key', '');
         $shopId = Setting::get('shop_id', '');
@@ -1092,6 +1141,13 @@ class PancakeOrderTagApi
      */
     public function addUpsellItem(string $orderId, array $item, string $upsellTagName, ?string $tsaTagName): bool
     {
+        $args = func_get_args();
+
+        return $this->withOrderWriteLock($orderId, fn () => $this->addUpsellItemUnlocked(...$args));
+    }
+
+    private function addUpsellItemUnlocked(string $orderId, array $item, string $upsellTagName, ?string $tsaTagName): bool
+    {
         $apiKey = Setting::get('pancake_api_key', '');
         $shopId = Setting::get('shop_id', '');
         if (empty($apiKey) || empty($shopId)) {
@@ -1194,7 +1250,7 @@ class PancakeOrderTagApi
                 // that actually matters for the sale) is already confirmed
                 // above, same reasoning as this method not failing the
                 // whole upsell over the tag in the first place.
-                $this->addTagsToOrder($orderId, $wantedTagNames->all());
+                $this->addTagsToOrderUnlocked($orderId, $wantedTagNames->all()); // already inside this order's write lock
             }
 
             return true;
@@ -1216,6 +1272,13 @@ class PancakeOrderTagApi
      * them, and correcting a miskeyed add is already what deleting resolves.
      */
     public function removeItem(string $orderId, string $variationId): bool
+    {
+        $args = func_get_args();
+
+        return $this->withOrderWriteLock($orderId, fn () => $this->removeItemUnlocked(...$args));
+    }
+
+    private function removeItemUnlocked(string $orderId, string $variationId): bool
     {
         $apiKey = Setting::get('pancake_api_key', '');
         $shopId = Setting::get('shop_id', '');
@@ -1266,6 +1329,13 @@ class PancakeOrderTagApi
      * order round-trips unchanged.
      */
     public function updateItem(string $orderId, string $variationId, float $retailPrice, ?int $quantity = null): bool
+    {
+        $args = func_get_args();
+
+        return $this->withOrderWriteLock($orderId, fn () => $this->updateItemUnlocked(...$args));
+    }
+
+    private function updateItemUnlocked(string $orderId, string $variationId, float $retailPrice, ?int $quantity = null): bool
     {
         $apiKey = Setting::get('pancake_api_key', '');
         $shopId = Setting::get('shop_id', '');
@@ -1321,4 +1391,46 @@ class PancakeOrderTagApi
             return false;
         }
     }
+
+    /** Gap kept between two writes to the same order, so the next write's
+     *  GET reads Pancake after the previous PUT has settled. */
+    private const ORDER_WRITE_SETTLE_MS = 1500;
+
+    /**
+     * Every write here is GET-the-whole-order then PUT-it-all-back (Pancake
+     * has no partial update). Two writes to one order close together could
+     * each read the order before the other's PUT landed, so the later PUT
+     * put back the stale copy and silently undid the first. Root-caused
+     * 2026-11-24 on #1396598: Aguinaldo saved the internal note at 13:51:22,
+     * the "Ordered" status change at 13:51:24 wrote the note back to empty.
+     * Writes to the same order now take turns (a per-order lock), with a
+     * short settle after the previous write before reading again.
+     */
+    private function withOrderWriteLock(string $orderId, callable $write)
+    {
+        $lock = Cache::lock("pancake_order_write_{$orderId}", 40);
+        $held = false;
+        try {
+            $held = $lock->block(30);
+        } catch (\Illuminate\Contracts\Cache\LockTimeoutException $e) {
+            Log::warning('PancakeOrderTagApi: waited 30s for another write to this order, writing anyway', ['order_id' => $orderId]);
+        }
+
+        try {
+            $settleMs = app()->runningUnitTests() ? 0 : self::ORDER_WRITE_SETTLE_MS;
+            $last = Cache::get("pancake_order_last_write_{$orderId}");
+            if ($last && $settleMs > 0) {
+                $waitUs = (int) round(((float) $last + $settleMs / 1000 - microtime(true)) * 1_000_000);
+                if ($waitUs > 0) usleep(min($waitUs, $settleMs * 1000));
+            }
+
+            $result = $write();
+            Cache::put("pancake_order_last_write_{$orderId}", microtime(true), 10);
+
+            return $result;
+        } finally {
+            if ($held) $lock->release();
+        }
+    }
+
 }
