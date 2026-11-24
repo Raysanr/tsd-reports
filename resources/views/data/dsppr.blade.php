@@ -715,7 +715,11 @@
                             $dayTotal['total_orders']  += $tiktokRaw['total_orders'];
                             $dayTotal['total_leads']   += $tiktokRaw['total_leads'];
                             $dayTotal['catered_leads'] += $tiktokRaw['catered_leads'];
-                            $dayTotal['excess_leads']  = max(0, $dayTotal['total_leads'] - $dayTotal['catered_leads']);
+                            // Sum of the rows' own Excess Leads (Total − Catered − Excluded,
+                            // per row), so the day TOTAL matches the rows and the range card
+                            // (2026-11-24: was Total − Catered, which kept Excluded in).
+                            $dayTotal['excess_leads']  = max(0, $realRows->sum(fn ($r) => (float) ($r['excess_leads'] ?? max(0, ($r['total_leads'] ?? 0) - ($r['catered_leads'] ?? 0))))
+                                + \App\Support\DsPprCalculator::derive($tiktokRaw)['excess_leads']);
                             // Pick-up/Conversion/Upselling Rate are
                             // recomputed from the SUMMED raw tally() counts
                             // across every display row (plus TikTok's own
@@ -1058,8 +1062,11 @@
             totals.total_leads += totalLeads;
             totals.catered_leads += cateredLeads;
 
-            const excessOverride = readOverride(row, 'excess_leads', date, false);
-            excessLeadsTotal += excessOverride ?? Math.max(0, totalLeads - cateredLeads);
+            // Real rows: the row's own Excess cell (Total − Catered − Excluded);
+            // TikTok: its override, else Total − Catered — same as the server.
+            excessLeadsTotal += isTiktokRow
+                ? (readOverride(row, 'excess_leads', date, false) ?? Math.max(0, totalLeads - cateredLeads))
+                : readRowValue(row, 'excess_leads', date);
 
             // Pick-up/Conversion/Upselling Rate recomputed from SUMMED raw
             // counts (2026-10-09 — see rateFromCounts()'s own doc comment),
@@ -1153,7 +1160,9 @@
                 pickupSum += pickupOverride ?? (totalLeads > 0 ? cateredLeads / totalLeads : 0);
                 convSum += convOverride ?? (cateredLeads > 0 ? totalOrders / cateredLeads : 0);
                 upsellSum += upsellOverride ?? (cateredLeads > 0 ? totalOrders / cateredLeads : 0);
-                excessLeadsTotal += excessOverride ?? Math.max(0, totalLeads - cateredLeads);
+                excessLeadsTotal += row.dataset.rowKey === 'tiktok'
+                    ? (excessOverride ?? Math.max(0, totalLeads - cateredLeads))
+                    : readRowValue(row, 'excess_leads', date); // row's own Total − Catered − Excluded
                 dayCount += 1;
             });
         });
