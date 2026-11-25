@@ -1001,13 +1001,32 @@ function tsaRefreshCounts(form) {
 
     const cell = document.querySelector(`[data-tsa-handles-count="${form.dataset.tsaId}"]`);
     if (!cell) return;
-    const span = document.createElement('span');
-    span.className = checked.length
-        ? 'text-xs font-mono font-semibold text-slate-600 dark:text-slate-300'
-        : 'text-xs font-mono text-slate-400';
-    span.textContent = checked.length ? `${checked.length} ${checked.length === 1 ? 'product' : 'products'}` : 'None';
-    if (checked.length) span.title = names.join(', ');
-    cell.replaceChildren(span);
+    // Same markup as the "Gets leads for" cell in calls/tsa-management/_table.blade.php.
+    const total = form.querySelectorAll('input[name="products[]"]').length;
+    if (!checked.length) {
+        const warn = document.createElement('span');
+        warn.className = 'inline-flex items-center gap-1.5 text-xs font-semibold text-orange-800 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/30 rounded-lg px-2.5 py-1.5 whitespace-nowrap';
+        warn.textContent = 'No products';
+        cell.replaceChildren(warn);
+        return;
+    }
+    const wrap = document.createElement('div');
+    wrap.className = 'w-40';
+    wrap.title = names.join(', ');
+    const text = document.createElement('span');
+    text.className = 'text-xs text-slate-600 dark:text-slate-300';
+    const count = document.createElement('b');
+    count.className = 'font-bold text-slate-800 dark:text-slate-100';
+    count.textContent = String(checked.length);
+    text.append(count, ` of ${total} products`);
+    const track = document.createElement('div');
+    track.className = 'mt-1.5 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden';
+    const bar = document.createElement('div');
+    bar.className = 'h-full rounded-full bg-primary';
+    bar.style.width = `${total ? Math.round(checked.length / total * 100) : 0}%`;
+    track.append(bar);
+    wrap.append(text, track);
+    cell.replaceChildren(wrap);
 }
 
 function tsaAutosaveNow(form) {

@@ -12,12 +12,15 @@
         in_array($status, [\App\Models\TsaShift::STATUS_LOGIN, \App\Models\TsaShift::STATUS_READY_TO_CALL], true) => 'bg-emerald-500',
         $status === \App\Models\TsaShift::STATUS_LOGOUT => 'bg-slate-300 dark:bg-slate-600',
         $status === \App\Models\TsaShift::STATUS_LOCKED => 'bg-red-500',
+        // Working and still in rotation (RoundRobinAssigner::ELIGIBLE_STATUSES) — status key above the table.
+        in_array($status, [\App\Models\TsaShift::STATUS_CALLING, \App\Models\TsaShift::STATUS_WRAP_UP, \App\Models\TsaShift::STATUS_CALL_BACKS], true) => 'bg-violet-500',
         default => 'bg-amber-500',
     };
     $statusBadge = fn ($status) => match (true) {
         in_array($status, [\App\Models\TsaShift::STATUS_LOGIN, \App\Models\TsaShift::STATUS_READY_TO_CALL], true) => 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400',
         $status === \App\Models\TsaShift::STATUS_LOGOUT => 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
         $status === \App\Models\TsaShift::STATUS_LOCKED => 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400',
+        in_array($status, [\App\Models\TsaShift::STATUS_CALLING, \App\Models\TsaShift::STATUS_WRAP_UP, \App\Models\TsaShift::STATUS_CALL_BACKS], true) => 'bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300',
         default => 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400',
     };
 @endphp
@@ -37,8 +40,8 @@
             <tr class="border-b border-slate-200 dark:border-slate-700">
                 <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">TSA</th>
                 <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">Team</th>
-                <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">Status</th>
-                <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">Handles</th>
+                <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">Right now</th>
+                <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">Gets leads for</th>
                 <th class="px-5 py-3"></th>
             </tr>
         </thead>
@@ -143,12 +146,17 @@
                         </span>
                     </td>
                     <td class="px-5 py-4" data-tsa-handles-count="{{ $tsa->id }}">
+                        {{-- Same markup as calls.js tsaRefreshCounts() — keep the two in step. --}}
                         @if($handledNames->isEmpty())
-                        <span class="text-xs font-mono text-slate-400">None</span>
-                        @else
-                        <span class="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300" title="{{ $handledNames->implode(', ') }}">
-                            {{ $handledNames->count() }} {{ Str::plural('product', $handledNames->count()) }}
+                        <span class="inline-flex items-center gap-1.5 text-xs font-semibold text-orange-800 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/30 rounded-lg px-2.5 py-1.5 whitespace-nowrap">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>
+                            No products
                         </span>
+                        @else
+                        <div class="w-40" title="{{ $handledNames->implode(', ') }}">
+                            <span class="text-xs text-slate-600 dark:text-slate-300"><b class="font-bold text-slate-800 dark:text-slate-100">{{ $handledNames->count() }}</b> of {{ $products->count() }} products</span>
+                            <div class="mt-1.5 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden"><div class="h-full rounded-full bg-primary" style="width: {{ $products->count() ? round($handledNames->count() / $products->count() * 100) : 0 }}%"></div></div>
+                        </div>
                         @endif
                     </td>
                     <td class="px-5 py-4 text-right">

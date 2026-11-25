@@ -1,23 +1,19 @@
 @extends('layouts.calls')
-@section('title', 'Call Rotation')
-@section('subtitle', 'Live status & which products each TSA handles')
+@section('title', 'TSA Management')
+@section('subtitle', 'Live status, products and calling settings')
 
 @section('content')
 
-{{-- flex-wrap (explicit follow-up request, 2026-09-05: "make all tabs is
-     responsive") — this row previously forced the team-filter pills and the
-     toggle+button group onto one unwrapped line, pushing the whole page
-     ~20px wider than a 360px viewport (confirmed: neither the table below,
-     which already scrolls fine via overflow-x-auto, nor any single element
-     was individually oversized — this row's own combined content was).
-     overflow-x-auto on the pill filter itself (added below) lets that piece
-     scroll horizontally if it's still too wide to wrap cleanly, same
-     convention this page's own table already uses one section down. --}}
-<div class="flex flex-wrap items-center justify-between gap-4 mb-6">
-    {{-- Segmented pill filter — same pattern (and same X-Table-Refresh
-         convention) as Leads Setup's own team filter, so the two pages feel
-         like one system instead of two different table styles. --}}
-    <div id="tsaMgmtFilter" class="relative inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl max-w-full overflow-x-auto">
+{{-- Layout (redesign, 2026-11-25 — design B "Table + Settings Panel"): the
+     roster on the left, every global setting in the "How calling works"
+     panel on the right. flex-wrap, so on a phone the panel drops below the
+     table. The team filter pills, table, drag-to-pair and status dropdown
+     are unchanged; only where things sit and how the settings read changed. --}}
+<div class="flex flex-wrap items-start gap-6">
+<div class="flex-[999_1_640px] min-w-0 flex flex-col gap-4">
+
+    <div class="flex flex-wrap items-center justify-between gap-3">
+        <div id="tsaMgmtFilter" class="relative inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl max-w-full overflow-x-auto">
         <span id="tsaMgmtFilterHighlight" class="absolute inset-y-1 left-1 rounded-lg bg-white dark:bg-slate-900 shadow-sm transition-all duration-200 ease-out" style="width: 0"></span>
 
         {{-- team='' explicit, not omitted — an omitted param is
@@ -40,103 +36,25 @@
         </a>
         @endforeach
     </div>
-
-    <div class="flex flex-wrap items-center gap-x-4 gap-y-3 min-w-0">
-        {{-- Global POS name tag auto-tagging switch — explicit request,
-             2026-08-28. One toggle for every TSA (not per-row): OFF just
-             stops each TSA's own tag being pushed to their Pancake POS
-             order when a call outcome is logged — leads still assign and
-             show up in the Leads tab exactly the same either way. --}}
-        <div class="flex items-center gap-2" title="Controls only the TSA name tag pushed to Pancake POS — lead assignment and the Leads tab are unaffected.">
-            <span class="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">POS name tag</span>
-            <button type="button" id="autoTaggingToggle"
-                    data-action="{{ route('calls.tsa-management.toggle-auto-tagging') }}"
-                    data-enabled="{{ $autoTaggingEnabled ? '1' : '0' }}"
-                    aria-pressed="{{ $autoTaggingEnabled ? 'true' : 'false' }}"
-                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-300 ease-in-out cursor-pointer active:scale-95 {{ $autoTaggingEnabled ? 'bg-primary' : 'bg-slate-300 dark:bg-slate-600' }}">
-                <span id="autoTaggingKnob"
-                      class="inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] will-change-transform {{ $autoTaggingEnabled ? 'translate-x-6' : 'translate-x-1' }}"></span>
-            </button>
-        </div>
-
-        {{-- Global midnight auto-logout switch — explicit request,
-             2026-09-21. Same shape/behavior as the POS name tag toggle
-             above (one global Setting, instant AJAX flip). OFF means every
-             TSA stays in whatever status they're in overnight — no
-             difference from before this feature existed. --}}
-        <div class="flex items-center gap-2" title="When on, every TSA still logged in is automatically logged out at 12:00 AM Manila time.">
-            <span class="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">Midnight auto-logout</span>
-            <button type="button" id="midnightAutoLogoutToggle"
-                    data-action="{{ route('calls.tsa-management.toggle-midnight-auto-logout') }}"
-                    data-enabled="{{ $midnightAutoLogoutEnabled ? '1' : '0' }}"
-                    aria-pressed="{{ $midnightAutoLogoutEnabled ? 'true' : 'false' }}"
-                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-300 ease-in-out cursor-pointer active:scale-95 {{ $midnightAutoLogoutEnabled ? 'bg-primary' : 'bg-slate-300 dark:bg-slate-600' }}">
-                <span id="midnightAutoLogoutKnob"
-                      class="inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] will-change-transform {{ $midnightAutoLogoutEnabled ? 'translate-x-6' : 'translate-x-1' }}"></span>
-            </button>
-        </div>
-
-        {{-- Global auto-text switch — explicit request, 2026-10-23. Same
-             toggle as the two above; each TSA also has their own on/off in
-             their edit panel. OFF = no texts at all. --}}
-        <div class="flex items-center gap-2" title="When on, each new lead gets a text from their TSA's own phone (SMSGate), for TSAs with auto-text on.">
-            <span class="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">Auto-text</span>
-            <button type="button" id="autoSmsToggle"
-                    data-action="{{ route('calls.tsa-management.toggle-auto-sms') }}"
-                    data-enabled="{{ $autoSmsEnabled ? '1' : '0' }}"
-                    aria-pressed="{{ $autoSmsEnabled ? 'true' : 'false' }}"
-                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-300 ease-in-out cursor-pointer active:scale-95 {{ $autoSmsEnabled ? 'bg-primary' : 'bg-slate-300 dark:bg-slate-600' }}">
-                <span id="autoSmsKnob"
-                      class="inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] will-change-transform {{ $autoSmsEnabled ? 'translate-x-6' : 'translate-x-1' }}"></span>
-            </button>
-        </div>
-
-        {{-- Global auto-call switch (2026-10-26) — one toggle for everyone.
-             ON: every TSA with a Dialer address gets their next lead dialed
-             by itself while Ready to Call (App\Support\AutoCall). --}}
-        <div class="flex items-center gap-2" title="When on, every TSA with a Dialer address gets their next lead dialed automatically once logged in or Ready to Call. New leads go to whoever has been Ready the longest; if nobody is free, they wait in line.">
-            <span class="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">Auto-call</span>
-            <button type="button" id="autoCallToggle"
-                    data-action="{{ route('calls.tsa-management.toggle-auto-call') }}"
-                    data-enabled="{{ $autoCallEnabled ? '1' : '0' }}"
-                    aria-pressed="{{ $autoCallEnabled ? 'true' : 'false' }}"
-                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-300 ease-in-out cursor-pointer active:scale-95 {{ $autoCallEnabled ? 'bg-primary' : 'bg-slate-300 dark:bg-slate-600' }}">
-                <span id="autoCallKnob"
-                      class="inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] will-change-transform {{ $autoCallEnabled ? 'translate-x-6' : 'translate-x-1' }}"></span>
-            </button>
-        </div>
-
-        {{-- Wrap Up length (2026-11-17) — how long after a call before the
-             TSA goes back to Ready to Call (and auto-call dials again).
-             Stored as seconds; see ExpireWrapUpStatuses. --}}
-        <form id="wrapUpForm" data-action="{{ route('calls.tsa-management.wrap-up-length') }}"
-              class="flex items-center gap-1.5" title="How long Wrap Up lasts after a call before the TSA is set back to Ready to Call (5 seconds to 60 minutes).">
-            <label for="wrapUpValue" class="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">Wrap Up</label>
-            <input id="wrapUpValue" type="number" min="1" max="3600" step="1" required
-                   value="{{ $wrapUpSeconds % 60 === 0 ? $wrapUpSeconds / 60 : $wrapUpSeconds }}"
-                   class="w-16 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-xs font-mono text-slate-700 dark:text-slate-200">
-            <select id="wrapUpUnit" aria-label="Wrap Up unit"
-                    class="rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-1.5 py-1 text-xs font-mono text-slate-700 dark:text-slate-200">
-                <option value="seconds" @selected($wrapUpSeconds % 60 !== 0)>sec</option>
-                <option value="minutes" @selected($wrapUpSeconds % 60 === 0)>min</option>
-            </select>
-            <button type="submit" class="rounded-md bg-primary hover:bg-primary-dark px-2 py-1 text-xs font-semibold font-mono text-white cursor-pointer">Save</button>
-        </form>
-
-        <button type="button" id="addTsaBtn"
-                class="inline-flex items-center gap-2 bg-primary hover:bg-primary-dark text-white text-sm font-semibold font-mono px-4 py-2 rounded-lg cursor-pointer shrink-0">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-            </svg>
-            Add TSA
-        </button>
     </div>
+
+    {{-- Status key — what each colour in the "Right now" column means for
+         lead assignment (RoundRobinAssigner::ELIGIBLE_STATUSES). --}}
+    <div aria-label="Status key" class="flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-slate-500 dark:text-slate-400">
+        <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-500"></span>Ready · gets leads</span>
+        <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-violet-500"></span>On a call · gets leads</span>
+        <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-amber-500"></span>On break · paused</span>
+        <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-slate-400"></span>Logged out</span>
+    </div>
+
+    <div id="tsaMgmtTableContainer" class="transition-opacity duration-150">
+    @include('calls.tsa-management._table')
 </div>
 
 {{-- Auto-text message per product — explicit request, 2026-10-23 ("per
      product"). Each textarea autosaves on blur. Blank = that product's
      leads get no text (logged on the lead as skipped). --}}
-<details class="mb-6 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm group/sms">
+<details id="smsTemplatesPanel" class="scroll-mt-6 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm group/sms">
     <summary class="flex items-center justify-between gap-3 px-6 py-4 cursor-pointer select-none list-none">
         <div>
             <p class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Auto-text messages</p>
@@ -179,6 +97,119 @@
     </div>
 </details>
 
+</div>{{-- /roster column --}}
+
+{{-- "How calling works" — every global Call Tracker setting in one panel,
+     grouped, each with a sentence that says what happens in its current
+     state (data-desc-on / data-desc-off, swapped by syncRuleDesc()). Every
+     change saves by itself; the badge at the top shows Saving… / Saved.
+     The switches keep their original ids, routes and JS. --}}
+@php
+    $rules = [
+        'calling' => [
+            ['id' => 'autoCall', 'label' => 'Auto-call', 'on' => $autoCallEnabled, 'route' => 'calls.tsa-management.toggle-auto-call',
+             'descOn' => "Dials the next lead automatically.",
+             'descOff' => 'Off. TSAs dial each lead.'],
+        ],
+        'messages' => [
+            ['id' => 'autoSms', 'label' => 'Auto-text', 'on' => $autoSmsEnabled, 'route' => 'calls.tsa-management.toggle-auto-sms',
+             'descOn' => "Texts each new lead.",
+             'descOff' => 'Off. No texts sent.'],
+        ],
+        'orders' => [
+            ['id' => 'autoTagging', 'label' => 'TSA name tag on orders', 'on' => $autoTaggingEnabled, 'route' => 'calls.tsa-management.toggle-auto-tagging',
+             'descOn' => "Tags the Pancake order with the TSA's name.",
+             'descOff' => 'Off. No name tag.'],
+            ['id' => 'midnightAutoLogout', 'label' => 'Log everyone out at midnight', 'on' => $midnightAutoLogoutEnabled, 'route' => 'calls.tsa-management.toggle-midnight-auto-logout',
+             'descOn' => 'Logs everyone out at 12:00 AM.',
+             'descOff' => 'Off. TSAs stay logged in.'],
+        ],
+    ];
+    $smsSet = $products->filter(fn ($p) => filled($p->sms_template))->count();
+    $wrapPresets = [60, 120, 180, 300, 600];
+@endphp
+<aside aria-labelledby="callingSettingsHeading"
+       class="flex-[1_1_320px] max-w-full lg:max-w-sm w-full bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-5 flex flex-col gap-5">
+    <div class="flex items-start justify-between gap-3">
+        <div>
+            <h2 id="callingSettingsHeading" class="text-base font-bold text-slate-800 dark:text-slate-100">How calling works</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Applies to every TSA</p>
+        </div>
+        <span id="tsaSettingsSaveState" aria-live="polite" data-state="saved"
+              class="inline-flex items-center gap-1 shrink-0 text-xs font-semibold rounded-full px-2.5 py-1 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
+            <svg data-save-icon class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.6" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+            <span data-save-label>Saved</span>
+        </span>
+    </div>
+
+    @foreach(['calling' => 'Calling', 'messages' => 'Messages', 'orders' => 'Orders and logins'] as $group => $groupLabel)
+    <section class="flex flex-col gap-2">
+        <h3 class="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{{ $groupLabel }}</h3>
+        <div class="rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-200 dark:divide-slate-700">
+            @foreach($rules[$group] as $rule)
+            <div class="flex items-center gap-4 px-4 py-3.5">
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-semibold text-slate-800 dark:text-slate-100">{{ $rule['label'] }}</p>
+                    <p id="{{ $rule['id'] }}Desc" data-desc-on="{{ $rule['descOn'] }}" data-desc-off="{{ $rule['descOff'] }}"
+                       class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mt-0.5">{{ $rule['on'] ? $rule['descOn'] : $rule['descOff'] }}</p>
+                </div>
+                <button type="button" id="{{ $rule['id'] }}Toggle" aria-label="{{ $rule['label'] }}"
+                        data-action="{{ route($rule['route']) }}"
+                        data-enabled="{{ $rule['on'] ? '1' : '0' }}"
+                        aria-pressed="{{ $rule['on'] ? 'true' : 'false' }}"
+                        aria-describedby="{{ $rule['id'] }}Desc"
+                        class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-300 ease-in-out cursor-pointer active:scale-95 {{ $rule['on'] ? 'bg-primary' : 'bg-slate-300 dark:bg-slate-600' }}">
+                    <span id="{{ $rule['id'] }}Knob"
+                          class="inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] will-change-transform {{ $rule['on'] ? 'translate-x-6' : 'translate-x-1' }}"></span>
+                </button>
+            </div>
+            @endforeach
+
+            @if($group === 'calling')
+            {{-- Wrap Up length (2026-11-17; autosave 2026-11-25, no Save
+                 button) — how long after a call before the TSA goes back to
+                 Ready to Call. Stored as seconds; see ExpireWrapUpStatuses. --}}
+            <div id="wrapUpForm" data-action="{{ route('calls.tsa-management.wrap-up-length') }}"
+                 data-seconds="{{ $wrapUpSeconds }}" class="px-4 py-3.5 flex flex-col gap-3">
+                <div>
+                    <p class="text-sm font-semibold text-slate-800 dark:text-slate-100">Wrap Up time</p>
+                    <p id="wrapUpDesc" class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mt-0.5"></p>
+                </div>
+                <div role="radiogroup" aria-label="Wrap Up time" class="grid grid-cols-5 gap-1.5">
+                    @foreach($wrapPresets as $preset)
+                    <button type="button" role="radio" data-wrap-preset="{{ $preset }}" aria-checked="{{ $wrapUpSeconds === $preset ? 'true' : 'false' }}"
+                            class="h-10 rounded-lg border text-xs font-semibold cursor-pointer transition-colors">{{ $preset / 60 }}m</button>
+                    @endforeach
+                </div>
+                <div class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                    <label for="wrapUpValue">Custom</label>
+                    <input id="wrapUpValue" type="number" min="1" max="3600" step="1"
+                           value="{{ $wrapUpSeconds % 60 === 0 ? $wrapUpSeconds / 60 : $wrapUpSeconds }}"
+                           class="w-20 h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 text-sm text-slate-700 dark:text-slate-200">
+                    <select id="wrapUpUnit" aria-label="Wrap Up unit"
+                            class="h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 text-sm text-slate-700 dark:text-slate-200">
+                        <option value="seconds" @selected($wrapUpSeconds % 60 !== 0)>seconds</option>
+                        <option value="minutes" @selected($wrapUpSeconds % 60 === 0)>minutes</option>
+                    </select>
+                </div>
+            </div>
+            @endif
+
+            @if($group === 'messages')
+            <a href="#smsTemplatesPanel" data-open-sms-templates
+               class="flex items-center justify-between gap-3 px-4 py-3 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-b-xl">
+                <span><b class="font-semibold text-slate-800 dark:text-slate-100">{{ $smsSet }}/{{ $products->count() }}</b> messages set</span>
+                <span class="inline-flex items-center gap-1 font-semibold text-primary-dark dark:text-yellow-400">Edit messages
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 6l6 6-6 6"/></svg>
+                </span>
+            </a>
+            @endif
+        </div>
+    </section>
+    @endforeach
+</aside>
+</div>{{-- /layout --}}
+
 {{-- Shared { } insert menu for the auto-text editors above. --}}
 <div id="smsInsertMenu" role="menu"
      class="hidden fixed z-50 w-56 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-1.5">
@@ -202,61 +233,7 @@
     @endforeach
 </div>
 
-<div id="tsaMgmtTableContainer" class="transition-opacity duration-150">
-    @include('calls.tsa-management._table')
-</div>
 
-{{-- Add TSA modal — same "search the real Pancake POS account list, don't
-     free-type a name" flow as TSD Reports' own Add TSA. --}}
-<div id="tsaModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6">
-    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
-        <div class="px-6 py-5 border-b border-slate-100 dark:border-slate-700">
-            <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono">Add a new TSA</h3>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">They'll start with no products assigned — check boxes below once added</p>
-        </div>
-        <form method="POST" action="{{ route('calls.tsa-management.store') }}" class="px-6 py-5 space-y-4">
-            @csrf
-            <input type="hidden" name="pos_user_id" id="tsaPosUserId" value="">
-
-            <div class="relative">
-                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">TSA name</label>
-                <input type="text" id="tsaNameInput" name="display_name" required autocomplete="off"
-                    placeholder="Search Pancake POS accounts..."
-                    class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-                <div id="tsaNameResults" class="hidden absolute z-10 mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-52 overflow-y-auto"></div>
-                <p id="tsaLinkedHint" class="hidden text-[11px] text-green-600 dark:text-green-400 mt-1">
-                    <svg class="w-3 h-3 inline -mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                    Linked to a real POS account
-                </p>
-            </div>
-
-            <div>
-                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Team</label>
-                <select name="team" required
-                    class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-                    {{-- Renamed-team-aware (explicit follow-up request, 2026-09-04) —
-                         option value stays the fixed order_team string (validated/
-                         stored as-is by TsaManagementController::store()), only the
-                         visible option text uses the (possibly renamed) display name. --}}
-                    @foreach($teams as $orderTeam => $displayName)
-                    <option value="{{ $orderTeam }}">{{ $displayName }}</option>
-                    @endforeach
-                </select>
-            </div>
-
-            <div class="flex items-center justify-end gap-2 pt-2">
-                <button type="button" id="cancelTsaModal"
-                        class="px-3 py-2 text-xs font-mono text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">
-                    Cancel
-                </button>
-                <button type="submit"
-                        class="px-4 py-2 text-xs font-semibold text-white bg-primary hover:bg-primary-dark rounded-lg transition-colors cursor-pointer">
-                    Add TSA
-                </button>
-            </div>
-        </form>
-    </div>
-</div>
 
 {{-- Pair-confirm modal — replaces a plain browser confirm() (explicit
      follow-up request, 2026-09-11: "create a modal for this") for the
@@ -335,6 +312,42 @@
 
 <script>
 (function () {
+    // "How calling works" panel helpers (redesign, 2026-11-25): the badge
+    // at the top of the panel replaces a toast per save, and each switch's
+    // sentence follows its state.
+    const saveBadge = document.getElementById('tsaSettingsSaveState');
+    const SAVE_STYLES = {
+        saving: ['Saving…', 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'],
+        saved:  ['Saved', 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'],
+        error:  ['Not saved', 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400'],
+    };
+    let pendingSaves = 0;
+    window.tsaSettingsSaveState = function (state) {
+        if (state === 'saving') pendingSaves++;
+        else pendingSaves = Math.max(0, pendingSaves - 1);
+        if (state === 'saved' && pendingSaves > 0) state = 'saving';
+        if (!saveBadge) return;
+        const all = Object.values(SAVE_STYLES).flatMap(([, cls]) => cls.split(' '));
+        saveBadge.classList.remove(...all);
+        saveBadge.classList.add(...SAVE_STYLES[state][1].split(' '));
+        saveBadge.querySelector('[data-save-label]').textContent = SAVE_STYLES[state][0];
+        saveBadge.querySelector('[data-save-icon]')?.classList.toggle('hidden', state !== 'saved');
+        saveBadge.dataset.state = state;
+    };
+    function syncRuleDesc(toggle) {
+        const desc = document.getElementById(toggle.id.replace(/Toggle$/, 'Desc'));
+        if (desc) desc.textContent = toggle.dataset.enabled === '1' ? desc.dataset.descOn : desc.dataset.descOff;
+    }
+    document.querySelectorAll('[data-open-sms-templates]').forEach((link) => {
+        link.addEventListener('click', (e) => {
+            const panel = document.getElementById('smsTemplatesPanel');
+            if (!panel) return;
+            e.preventDefault();
+            panel.open = true;
+            panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    });
+
     // Team filter — identical animated-pill + AJAX-swap pattern as Leads
     // Setup (round-robin-setup.blade.php); kept as its own copy rather than
     // a shared include since the two pages' container/pill ids differ and
@@ -395,7 +408,7 @@
     if (autoTaggingToggle && autoTaggingKnob) {
         function paintAutoTagging(enabled) {
             autoTaggingToggle.dataset.enabled = enabled ? '1' : '0';
-            autoTaggingToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+            autoTaggingToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false'); syncRuleDesc(autoTaggingToggle);
             autoTaggingToggle.classList.toggle('bg-primary', enabled);
             autoTaggingToggle.classList.toggle('bg-slate-300', !enabled);
             autoTaggingToggle.classList.toggle('dark:bg-slate-600', !enabled);
@@ -406,7 +419,7 @@
         autoTaggingToggle.addEventListener('click', () => {
             const next = autoTaggingToggle.dataset.enabled !== '1';
             paintAutoTagging(next);
-            autoTaggingToggle.disabled = true;
+            autoTaggingToggle.disabled = true; window.tsaSettingsSaveState('saving');
 
             fetch(autoTaggingToggle.dataset.action, {
                 method: 'POST',
@@ -420,10 +433,10 @@
             })
                 .then((res) => (res.ok ? res.json() : Promise.reject(res)))
                 .then((data) => {
-                    window.showToast?.(data.message || 'Saved.', 'success');
+                    window.tsaSettingsSaveState('saved');
                 })
                 .catch(async (res) => {
-                    paintAutoTagging(!next);
+                    paintAutoTagging(!next); window.tsaSettingsSaveState('error');
                     let message = 'Could not save — try again.';
                     if (res?.json) {
                         try {
@@ -445,7 +458,7 @@
     if (midnightAutoLogoutToggle && midnightAutoLogoutKnob) {
         function paintMidnightAutoLogout(enabled) {
             midnightAutoLogoutToggle.dataset.enabled = enabled ? '1' : '0';
-            midnightAutoLogoutToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+            midnightAutoLogoutToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false'); syncRuleDesc(midnightAutoLogoutToggle);
             midnightAutoLogoutToggle.classList.toggle('bg-primary', enabled);
             midnightAutoLogoutToggle.classList.toggle('bg-slate-300', !enabled);
             midnightAutoLogoutToggle.classList.toggle('dark:bg-slate-600', !enabled);
@@ -456,7 +469,7 @@
         midnightAutoLogoutToggle.addEventListener('click', () => {
             const next = midnightAutoLogoutToggle.dataset.enabled !== '1';
             paintMidnightAutoLogout(next);
-            midnightAutoLogoutToggle.disabled = true;
+            midnightAutoLogoutToggle.disabled = true; window.tsaSettingsSaveState('saving');
 
             fetch(midnightAutoLogoutToggle.dataset.action, {
                 method: 'POST',
@@ -470,10 +483,10 @@
             })
                 .then((res) => (res.ok ? res.json() : Promise.reject(res)))
                 .then((data) => {
-                    window.showToast?.(data.message || 'Saved.', 'success');
+                    window.tsaSettingsSaveState('saved');
                 })
                 .catch(async (res) => {
-                    paintMidnightAutoLogout(!next);
+                    paintMidnightAutoLogout(!next); window.tsaSettingsSaveState('error');
                     let message = 'Could not save — try again.';
                     if (res?.json) {
                         try {
@@ -494,7 +507,7 @@
     if (autoCallToggle && autoCallKnob) {
         const paintAutoCall = (enabled) => {
             autoCallToggle.dataset.enabled = enabled ? '1' : '0';
-            autoCallToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+            autoCallToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false'); syncRuleDesc(autoCallToggle);
             autoCallToggle.classList.toggle('bg-primary', enabled);
             autoCallToggle.classList.toggle('bg-slate-300', !enabled);
             autoCallToggle.classList.toggle('dark:bg-slate-600', !enabled);
@@ -504,7 +517,7 @@
         autoCallToggle.addEventListener('click', () => {
             const next = autoCallToggle.dataset.enabled !== '1';
             paintAutoCall(next);
-            autoCallToggle.disabled = true;
+            autoCallToggle.disabled = true; window.tsaSettingsSaveState('saving');
             fetch(autoCallToggle.dataset.action, {
                 method: 'POST',
                 headers: {
@@ -516,23 +529,49 @@
                 body: `enabled=${next ? '1' : '0'}`,
             })
                 .then((res) => (res.ok ? res.json() : Promise.reject(res)))
-                .then((data) => window.showToast?.(data.message || 'Saved.', 'success'))
-                .catch(() => { paintAutoCall(!next); window.showToast?.('Could not save — try again.', 'error'); })
+                .then((data) => window.tsaSettingsSaveState('saved'))
+                .catch(() => { paintAutoCall(!next); window.tsaSettingsSaveState('error'); window.showToast?.('Could not save — try again.', 'error'); })
                 .finally(() => { autoCallToggle.disabled = false; });
         });
     }
 
-    // Wrap Up length (2026-11-17).
+    // Wrap Up length (2026-11-17) — saves by itself (2026-11-25, no Save
+    // button): a preset click saves at once; the custom number/unit saves
+    // shortly after the admin stops typing.
     const wrapUpForm = document.getElementById('wrapUpForm');
     if (wrapUpForm) {
-        wrapUpForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const btn = wrapUpForm.querySelector('button[type="submit"]');
-            btn.disabled = true;
-            const body = new URLSearchParams({
-                value: document.getElementById('wrapUpValue').value,
-                unit: document.getElementById('wrapUpUnit').value,
+        const valueInput = document.getElementById('wrapUpValue');
+        const unitSelect = document.getElementById('wrapUpUnit');
+        const desc = document.getElementById('wrapUpDesc');
+        const presets = wrapUpForm.querySelectorAll('[data-wrap-preset]');
+        const label = (sec) => sec % 60 === 0
+            ? `${sec / 60} minute${sec === 60 ? '' : 's'}`
+            : `${sec} second${sec === 1 ? '' : 's'}`;
+        const paint = (sec) => {
+            presets.forEach((btn) => {
+                const on = Number(btn.dataset.wrapPreset) === sec;
+                btn.setAttribute('aria-checked', on ? 'true' : 'false');
+                btn.classList.toggle('border-primary', on);
+                btn.classList.toggle('bg-primary/10', on);
+                btn.classList.toggle('text-primary-dark', on);
+                btn.classList.toggle('dark:text-yellow-400', on);
+                btn.classList.toggle('border-slate-300', !on);
+                btn.classList.toggle('dark:border-slate-600', !on);
+                btn.classList.toggle('text-slate-600', !on);
+                btn.classList.toggle('dark:text-slate-300', !on);
             });
+            if (desc) desc.textContent = `${label(sec)} after each call, then Ready to Call.`;
+        };
+        let saved = Number(wrapUpForm.dataset.seconds);
+        paint(saved);
+
+        let seq = 0;
+        const save = (value, unit) => {
+            const sec = Number(value) * (unit === 'minutes' ? 60 : 1);
+            if (!Number.isFinite(sec) || sec <= 0 || sec === saved) return;
+            const mine = ++seq;
+            paint(sec);
+            window.tsaSettingsSaveState('saving');
             fetch(wrapUpForm.dataset.action, {
                 method: 'POST',
                 headers: {
@@ -541,16 +580,37 @@
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
                 },
-                body: body.toString(),
+                body: new URLSearchParams({ value: String(value), unit }).toString(),
             })
                 .then(async (res) => {
                     const data = await res.json().catch(() => ({}));
                     if (!res.ok) throw new Error(data.message || 'Could not save — try again.');
-                    window.showToast?.(data.message || 'Saved.', 'success');
+                    saved = Number(data.seconds ?? sec);
+                    window.tsaSettingsSaveState('saved');
                 })
-                .catch((err) => window.showToast?.(err.message || 'Could not save — try again.', 'error'))
-                .finally(() => { btn.disabled = false; });
-        });
+                .catch((err) => {
+                    window.tsaSettingsSaveState('error');
+                    window.showToast?.(err.message || 'Could not save — try again.', 'error');
+                    if (mine === seq) paint(saved);
+                });
+        };
+
+        presets.forEach((btn) => btn.addEventListener('click', () => {
+            const sec = Number(btn.dataset.wrapPreset);
+            valueInput.value = sec / 60;
+            unitSelect.value = 'minutes';
+            save(sec / 60, 'minutes');
+        }));
+        let typingTimer = null;
+        const saveCustom = () => {
+            clearTimeout(typingTimer);
+            typingTimer = setTimeout(() => {
+                if (valueInput.value === '' || !valueInput.checkValidity()) return;
+                save(parseInt(valueInput.value, 10), unitSelect.value);
+            }, 700);
+        };
+        valueInput.addEventListener('input', saveCustom);
+        unitSelect.addEventListener('change', saveCustom);
     }
 
     // Global auto-text switch — same optimistic-paint/rollback shape as
@@ -560,7 +620,7 @@
     if (autoSmsToggle && autoSmsKnob) {
         function paintAutoSms(enabled) {
             autoSmsToggle.dataset.enabled = enabled ? '1' : '0';
-            autoSmsToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+            autoSmsToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false'); syncRuleDesc(autoSmsToggle);
             autoSmsToggle.classList.toggle('bg-primary', enabled);
             autoSmsToggle.classList.toggle('bg-slate-300', !enabled);
             autoSmsToggle.classList.toggle('dark:bg-slate-600', !enabled);
@@ -571,7 +631,7 @@
         autoSmsToggle.addEventListener('click', () => {
             const next = autoSmsToggle.dataset.enabled !== '1';
             paintAutoSms(next);
-            autoSmsToggle.disabled = true;
+            autoSmsToggle.disabled = true; window.tsaSettingsSaveState('saving');
 
             fetch(autoSmsToggle.dataset.action, {
                 method: 'POST',
@@ -584,9 +644,9 @@
                 body: `enabled=${next ? '1' : '0'}`,
             })
                 .then((res) => (res.ok ? res.json() : Promise.reject(res)))
-                .then((data) => window.showToast?.(data.message || 'Saved.', 'success'))
+                .then((data) => window.tsaSettingsSaveState('saved'))
                 .catch(() => {
-                    paintAutoSms(!next);
+                    paintAutoSms(!next); window.tsaSettingsSaveState('error');
                     window.showToast?.('Could not save — try again.', 'error');
                 })
                 .finally(() => { autoSmsToggle.disabled = false; });
@@ -680,74 +740,6 @@
     document.addEventListener('click', (e) => { if (smsMenu && !smsMenu.contains(e.target)) smsCloseMenu(); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') smsCloseMenu(); });
     window.addEventListener('scroll', smsCloseMenu, true);
-
-    // Add TSA modal
-    const tsaModal      = document.getElementById('tsaModal');
-    const addTsaBtn      = document.getElementById('addTsaBtn');
-    const cancelTsaModal = document.getElementById('cancelTsaModal');
-    const nameInput      = document.getElementById('tsaNameInput');
-    const posUserIdInput = document.getElementById('tsaPosUserId');
-    const resultsBox     = document.getElementById('tsaNameResults');
-    const linkedHint     = document.getElementById('tsaLinkedHint');
-
-    function openTsaModal() { tsaModal.classList.remove('hidden'); tsaModal.classList.add('flex'); }
-    function closeTsaModal() {
-        tsaModal.classList.add('hidden');
-        tsaModal.classList.remove('flex');
-        resultsBox.classList.add('hidden');
-        nameInput.value = '';
-        posUserIdInput.value = '';
-        linkedHint.classList.add('hidden');
-    }
-
-    addTsaBtn.addEventListener('click', openTsaModal);
-    cancelTsaModal.addEventListener('click', closeTsaModal);
-    tsaModal.addEventListener('click', (e) => { if (e.target === tsaModal) closeTsaModal(); });
-
-    // Searchable POS-account picker — same debounced-fetch pattern as TSD
-    // Reports' own Add TSA form.
-    let debounceTimer = null;
-    nameInput.addEventListener('input', () => {
-        posUserIdInput.value = '';
-        linkedHint.classList.add('hidden');
-        clearTimeout(debounceTimer);
-        const q = nameInput.value.trim();
-        debounceTimer = setTimeout(() => fetchPosUsers(q), 250);
-    });
-    nameInput.addEventListener('focus', () => {
-        if (nameInput.value.trim() !== '') fetchPosUsers(nameInput.value.trim());
-    });
-
-    async function fetchPosUsers(q) {
-        try {
-            const res = await fetch(`{{ route('calls.tsa-management.pos-users') }}?q=` + encodeURIComponent(q));
-            const users = await res.json();
-            renderResults(users);
-        } catch (e) {
-            resultsBox.classList.add('hidden');
-        }
-    }
-
-    function renderResults(users) {
-        if (!users.length) { resultsBox.classList.add('hidden'); resultsBox.innerHTML = ''; return; }
-        resultsBox.innerHTML = users.map(u => `
-            <div class="tsaResultRow px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-primary-dark cursor-pointer" data-id="${u.id}" data-name="${u.name.replace(/"/g, '&quot;')}">
-                ${u.name}
-            </div>
-        `).join('');
-        resultsBox.classList.remove('hidden');
-
-        resultsBox.querySelectorAll('.tsaResultRow').forEach(row => {
-            // mousedown fires before the input's blur, so the click registers
-            row.addEventListener('mousedown', (e) => {
-                e.preventDefault();
-                nameInput.value = row.dataset.name;
-                posUserIdInput.value = row.dataset.id;
-                linkedHint.classList.remove('hidden');
-                resultsBox.classList.add('hidden');
-            });
-        });
-    }
 })();
 
 // Expand/collapse a TSA's detail row — delegated so it survives the filter's
