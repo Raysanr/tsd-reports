@@ -1,6 +1,6 @@
 @extends('layouts.calls')
 @section('title', 'Leads Setup')
-@section('subtitle', "Per-TSA daily lead cap — round-robin skips a TSA once they've hit it today")
+@section('subtitle', 'Daily lead limit per TSA. Once a TSA reaches it, new leads go to the others.')
 
 @push('topbar-right')
 {{-- Icon-only, real two-calendar range — same shared picker Dashboard uses,
@@ -33,7 +33,8 @@
      its own background — that's what makes it glide instead of snap. Links
      stay real hrefs (working nav, right-click/open-in-new-tab, no-JS
      fallback); JS only intercepts the click to animate instead of reload. --}}
-<div id="rrsFilter" class="relative mb-6 inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+<div id="rrsFilter" class="relative inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
     <span id="rrsFilterHighlight" class="absolute inset-y-1 left-1 rounded-lg bg-white dark:bg-slate-900 shadow-sm transition-all duration-200 ease-out" style="width: 0"></span>
 
     @php
@@ -58,6 +59,9 @@
         {{ $displayName }}
     </a>
     @endforeach
+</div>
+    {{-- One page-level save badge for every limit box (2026-11-25). --}}
+    <span id="rrsSaveState" aria-live="polite" class="hidden items-center gap-1 text-xs font-semibold rounded-full px-2.5 py-1"></span>
 </div>
 
 <div id="rrsTableContainer" class="transition-opacity duration-150">
@@ -127,14 +131,55 @@
     // waits out the debounce.
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
     const saveTimers = new WeakMap();
+    const saveBadge = document.getElementById('rrsSaveState');
+    const BADGE = {
+        saving: ['Saving…', 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'],
+        saved:  ['✓ Saved', 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'],
+        error:  ['Not saved', 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400'],
+    };
+    let badgeTimer = null;
+    function showBadge(state) {
+        if (!saveBadge) return;
+        clearTimeout(badgeTimer);
+        saveBadge.classList.remove('hidden', ...Object.values(BADGE).flatMap(([, c]) => c.split(' ')));
+        saveBadge.classList.add('inline-flex', ...BADGE[state][1].split(' '));
+        saveBadge.textContent = BADGE[state][0];
+        if (state === 'saved') badgeTimer = setTimeout(() => { saveBadge.classList.add('hidden'); saveBadge.classList.remove('inline-flex'); }, 2500);
+    }
+
+    // Repaints one row's "of N / N left", bar and status from its limit box,
+    // so a change shows straight away (same rule as TsaShift::hasReachedDailyCap()).
+    function paintRow(row) {
+        const input = row.querySelector('.daily-cap-input');
+        const assigned = Number(row.dataset.assigned) || 0;
+        const cap = input.value === '' ? null : parseInt(input.value, 10);
+        const hasCap = cap !== null && !Number.isNaN(cap);
+        const full = hasCap && assigned >= cap;
+        row.querySelector('[data-cap-of]').textContent = hasCap ? `of ${cap}` : (assigned === 1 ? 'lead' : 'leads');
+        row.querySelector('[data-cap-left]').textContent = hasCap ? `${Math.max(0, cap - assigned)} left` : '';
+        row.querySelector('[data-cap-track]').classList.toggle('invisible', !hasCap);
+        const bar = row.querySelector('[data-cap-bar]');
+        bar.style.width = hasCap ? `${Math.min(100, Math.round(assigned / Math.max(cap, 1) * 100))}%` : '0%';
+        bar.classList.toggle('bg-orange-500', full);
+        bar.classList.toggle('bg-primary', !full);
+        const state = !hasCap ? 'none' : (full ? 'reached' : 'taking');
+        row.querySelectorAll('[data-cap-status]').forEach((el) => {
+            el.classList.toggle('hidden', el.dataset.capStatus !== state);
+            el.classList.toggle('inline-flex', el.dataset.capStatus === state);
+        });
+        const unl = row.querySelector('[data-cap-unlimited]');
+        unl.setAttribute('aria-pressed', hasCap ? 'false' : 'true');
+        ['border-primary', 'bg-primary/10', 'text-primary-dark', 'dark:text-yellow-400'].forEach((c) => unl.classList.toggle(c, !hasCap));
+        ['border-slate-200', 'dark:border-slate-700', 'text-slate-500', 'dark:text-slate-400'].forEach((c) => unl.classList.toggle(c, hasCap));
+    }
 
     function saveDailyCap(input) {
         const row = input.closest('.daily-cap-row');
-        const status = row?.querySelector('.daily-cap-status');
         if (!row) return;
-
         clearTimeout(saveTimers.get(input));
-        if (status) status.textContent = 'Saving…';
+        if (input.value === input.dataset.saved) return;
+        const value = input.value;
+        showBadge('saving');
 
         fetch(row.dataset.action, {
             method: 'POST',
@@ -143,26 +188,24 @@
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRF-TOKEN': csrfToken,
             },
-            body: `daily_lead_cap=${encodeURIComponent(input.value)}`,
+            body: `daily_lead_cap=${encodeURIComponent(value)}`,
         })
             .then((res) => (res.ok ? res.json() : Promise.reject(res)))
-            .then(() => {
-                if (status) {
-                    status.textContent = 'Saved';
-                    setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 2000);
-                }
-            })
+            .then(() => { input.dataset.saved = value; showBadge('saved'); })
             .catch(() => {
-                if (status) status.textContent = 'Failed';
-                window.showToast?.('Could not save the daily cap — try again.', 'error');
+                showBadge('error');
+                window.showToast?.('Could not save the daily limit — try again.', 'error');
             });
     }
+
+    const markSaved = () => container.querySelectorAll('.daily-cap-input').forEach((i) => { if (i.dataset.saved === undefined) i.dataset.saved = i.value; });
+    markSaved();
+    new MutationObserver(markSaved).observe(container, { childList: true });
 
     container.addEventListener('input', (e) => {
         const input = e.target.closest('.daily-cap-input');
         if (!input) return;
-        const status = input.closest('.daily-cap-row')?.querySelector('.daily-cap-status');
-        if (status) status.textContent = '';
+        paintRow(input.closest('.daily-cap-row'));
         clearTimeout(saveTimers.get(input));
         saveTimers.set(input, setTimeout(() => saveDailyCap(input), 600));
     });
@@ -176,6 +219,25 @@
         if (e.key !== 'Enter') return;
         const input = e.target.closest('.daily-cap-input');
         if (input) { e.preventDefault(); saveDailyCap(input); }
+    });
+
+    // − / + (steps of 10, never below 1) and No limit — save straight away.
+    container.addEventListener('click', (e) => {
+        const step = e.target.closest('[data-cap-step]');
+        const unlimited = e.target.closest('[data-cap-unlimited]');
+        if (!step && !unlimited) return;
+        const row = e.target.closest('.daily-cap-row');
+        const input = row?.querySelector('.daily-cap-input');
+        if (!input) return;
+        if (unlimited) {
+            input.value = input.value === '' ? '100' : '';
+        } else {
+            const delta = Number(step.dataset.capStep);
+            const current = input.value === '' ? (delta > 0 ? 90 : 110) : parseInt(input.value, 10) || 0;
+            input.value = String(Math.max(1, current + delta));
+        }
+        paintRow(row);
+        saveDailyCap(input);
     });
 })();
 </script>

@@ -93,6 +93,7 @@ class RoundRobinSetupController extends Controller
         ]);
 
         $tsaShift->update(['daily_lead_cap' => $data['daily_lead_cap'] ?? null]);
+        \App\Support\LeadCapAlerts::forget(); // sidebar "!" follows the new limit
 
         $message = "{$tsaShift->display_name}'s daily lead cap updated.";
 

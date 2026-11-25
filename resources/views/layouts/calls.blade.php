@@ -463,6 +463,13 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m9 12h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0H12M3.75 12H12m0 0a1.5 1.5 0 103 0m-3 0a1.5 1.5 0 013 0m3.75 0H21"/>
             </svg>
             Leads Setup
+            {{-- "!" when a TSA has reached today's daily lead limit (2026-11-25). --}}
+            @php $leadCapReached = \App\Support\LeadCapAlerts::reachedToday(); @endphp
+            @if($leadCapReached)
+            <span class="ml-auto shrink-0 w-5 h-5 rounded-full bg-orange-500 text-white text-[11px] font-bold flex items-center justify-center"
+                  title="{{ implode(', ', $leadCapReached) }} {{ count($leadCapReached) === 1 ? 'has' : 'have' }} reached today's lead limit"
+                  aria-label="{{ count($leadCapReached) }} {{ count($leadCapReached) === 1 ? 'TSA has' : 'TSAs have' }} reached today's lead limit">!</span>
+            @endif
         </a>
         @endif
         @if(\App\Support\NormalUserPages::canSee('calls.tsa-logs'))
