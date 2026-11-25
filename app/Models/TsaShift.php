@@ -26,6 +26,7 @@ class TsaShift extends Model
         'phone_number', 'dialer_host', 'api_token', 'active',
         'status', 'status_changed_at', 'status_locked_by', 'daily_lead_cap',
         'paired_with_tsa_id',
+        'smart_distribution',
         // Independent of `team` — see add_tiktok_upsell_to_tsa_shifts_table
         // migration's own doc comment for why this isn't a 3rd team value.
         'tiktok_upsell',
@@ -171,6 +172,7 @@ class TsaShift extends Model
         'status_changed_at' => 'datetime',
         'tiktok_upsell' => 'boolean',
         'sms_enabled' => 'boolean',
+        'smart_distribution' => 'boolean',
         'smsgate_password' => 'encrypted',
     ];
 

@@ -538,6 +538,26 @@
         });
     }
 
+    // Per-TSA Smart distribution state (2026-11-25): a TSA is "in" when the
+    // global switch is on AND their own "Use Smart distribution" is ticked.
+    // Delegated, so it survives the team-pill table refresh.
+    function tsaApplySmart() {
+        const globalOn = document.getElementById('smartDistributionToggle')?.dataset.enabled === '1';
+        document.querySelectorAll('[data-smart-tsa]').forEach((el) => {
+            const cb = document.querySelector(`input[type="checkbox"][data-smart-for="${el.dataset.smartTsa}"]`);
+            const on = globalOn && (!cb || cb.checked);
+            switch (el.dataset.smartRole) {
+                case 'smart':  el.classList.toggle('hidden', !on); break;
+                case 'manual': el.classList.toggle('hidden', on); break;
+                case 'optin':  el.classList.toggle('hidden', !globalOn); break;
+                case 'lock':   el.inert = on; el.classList.toggle('opacity-50', on); break;
+            }
+        });
+    }
+    document.addEventListener('change', (e) => {
+        if (e.target.matches?.('input[type="checkbox"][data-smart-for]')) tsaApplySmart();
+    });
+
     // Smart distribution (2026-11-25) — same shape as Auto-call above; also
     // flips every "Gets leads for" cell between "All products" and the
     // TSA's own list.
@@ -552,9 +572,7 @@
             smartToggle.classList.toggle('dark:bg-slate-600', !enabled);
             smartKnob.classList.toggle('translate-x-6', enabled);
             smartKnob.classList.toggle('translate-x-1', !enabled);
-            document.querySelectorAll('[data-smart-view]').forEach((el) => el.classList.toggle('hidden', !enabled));
-            document.querySelectorAll('[data-manual-view]').forEach((el) => el.classList.toggle('hidden', enabled));
-            document.querySelectorAll('[data-smart-lock]').forEach((el) => { el.inert = enabled; el.classList.toggle('opacity-50', enabled); });
+            tsaApplySmart();
         };
         smartToggle.addEventListener('click', () => {
             const next = smartToggle.dataset.enabled !== '1';

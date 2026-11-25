@@ -50,6 +50,7 @@
                 @php
                     $style        = $teamStyles[$tsa->team] ?? ['dot' => 'bg-slate-400', 'text' => 'text-slate-500', 'bg' => 'bg-slate-100'];
                     $tsaProducts  = $assignments[$tsa->id] ?? [];
+                    $smartOn      = ($smartDistributionEnabled ?? false) && $tsa->smart_distribution;
                     $handledNames = $products->whereIn('id', $tsaProducts)->pluck('display_name');
                     // Every product is available to every TSA now (explicit
                     // request, 2026-09-06: "all of the TSA now will handle
@@ -147,11 +148,11 @@
                     </td>
                     <td class="px-5 py-4">
                         {{-- Smart distribution on: everyone handles every product. --}}
-                        <div data-smart-view class="w-40 {{ ($smartDistributionEnabled ?? false) ? '' : 'hidden' }}">
+                        <div data-smart-tsa="{{ $tsa->id }}" data-smart-role="smart" class="w-40 {{ $smartOn ? '' : 'hidden' }}">
                             <span class="text-xs text-slate-600 dark:text-slate-300"><b class="font-bold text-slate-800 dark:text-slate-100">All</b> {{ $products->count() }} products · Smart</span>
                             <div class="mt-1.5 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden"><div class="h-full w-full rounded-full bg-primary"></div></div>
                         </div>
-                        <div data-manual-view data-tsa-handles-count="{{ $tsa->id }}" class="{{ ($smartDistributionEnabled ?? false) ? 'hidden' : '' }}">
+                        <div data-smart-tsa="{{ $tsa->id }}" data-smart-role="manual" data-tsa-handles-count="{{ $tsa->id }}" class="{{ $smartOn ? 'hidden' : '' }}">
                         {{-- Same markup as calls.js tsaRefreshCounts() — keep the two in step. --}}
                         @if($handledNames->isEmpty())
                         <span class="inline-flex items-center gap-1.5 text-xs font-semibold text-orange-800 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/30 rounded-lg px-2.5 py-1.5 whitespace-nowrap">
@@ -233,10 +234,26 @@
                                 {{-- Smart distribution on: locked (inert, NOT disabled — disabled
                                      boxes drop out of the autosave POST and would wipe this TSA's
                                      saved list). Their ticks come back into effect when it's off. --}}
-                                <p data-smart-view class="mb-2 text-xs text-slate-500 dark:text-slate-400 {{ ($smartDistributionEnabled ?? false) ? '' : 'hidden' }}">
-                                    Smart distribution is on, so {{ $tsa->display_name }} gets every product. These choices apply again when it's turned off.
+                                {{-- Per-TSA opt-in (2026-11-25) — only shown while the global
+                                     Smart distribution switch is on. --}}
+                                <label data-smart-tsa="{{ $tsa->id }}" data-smart-role="optin"
+                                       class="mb-3 flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-700 px-3.5 py-2.5 cursor-pointer select-none {{ ($smartDistributionEnabled ?? false) ? '' : 'hidden' }}">
+                                    <span>
+                                        <span class="block text-sm font-semibold text-slate-800 dark:text-slate-100">Use Smart distribution</span>
+                                        <span class="block text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">On: gets every product, busiest first. Off: only the products ticked below.</span>
+                                    </span>
+                                    <input type="hidden" name="smart_distribution" value="0">
+                                    <input type="checkbox" name="smart_distribution" value="1" data-smart-for="{{ $tsa->id }}" {{ $tsa->smart_distribution ? 'checked' : '' }} class="peer sr-only">
+                                    <span aria-hidden="true" class="relative h-6 w-11 shrink-0 rounded-full bg-slate-300 dark:bg-slate-600 transition-colors duration-300 peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-yellow-500
+                                                 after:absolute after:top-1 after:left-1 after:size-4 after:rounded-full after:bg-white after:shadow-md after:transition-transform after:duration-300 peer-checked:after:translate-x-5"></span>
+                                </label>
+                                {{-- In Smart distribution: locked (inert, NOT disabled — disabled
+                                     boxes drop out of the autosave POST and would wipe this TSA's
+                                     saved list). Their ticks come back into effect when it's off. --}}
+                                <p data-smart-tsa="{{ $tsa->id }}" data-smart-role="smart" class="mb-2 text-xs text-slate-500 dark:text-slate-400 {{ $smartOn ? '' : 'hidden' }}">
+                                    {{ $tsa->display_name }} is in Smart distribution, so gets every product. These choices apply when that's off.
                                 </p>
-                                <div data-smart-lock class="grid grid-cols-2 sm:grid-cols-3 gap-2 transition-opacity {{ ($smartDistributionEnabled ?? false) ? 'opacity-50' : '' }}" @if($smartDistributionEnabled ?? false) inert @endif>
+                                <div data-smart-tsa="{{ $tsa->id }}" data-smart-role="lock" class="grid grid-cols-2 sm:grid-cols-3 gap-2 transition-opacity {{ $smartOn ? 'opacity-50' : '' }}" @if($smartOn) inert @endif>
                                     @foreach($teamProducts as $product)
                                         <label class="group relative flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 px-3.5 py-2.5 text-sm text-slate-700 dark:text-slate-200 cursor-pointer select-none shadow-xs transition-all duration-150
                                                       hover:border-slate-300 hover:bg-slate-50 dark:hover:border-slate-600 dark:hover:bg-slate-800

@@ -162,6 +162,7 @@ class TsaManagementController extends Controller
             'phone_number' => ['nullable', 'string', 'max:32'],
             'dialer_host'  => ['nullable', 'string', 'max:64'],
             'sms_enabled'      => ['sometimes', 'boolean'],
+            'smart_distribution' => ['sometimes', 'boolean'],
             'smsgate_username' => ['nullable', 'string', 'max:255'],
             'smsgate_password' => ['nullable', 'string', 'max:255'],
         ]);
@@ -183,6 +184,9 @@ class TsaManagementController extends Controller
         // password keeps the saved one (the field never echoes it back).
         // A paired partner shares the primary's phone — their auto-text
         // settings live on the primary only (TsaShift::smsPhoneOwner()).
+        if ($request->has('smart_distribution')) {
+            $tsaShift->smart_distribution = $request->boolean('smart_distribution');
+        }
         $sharesPhone = $tsaShift->paired_with_tsa_id !== null;
         if (!$sharesPhone && $request->has('sms_enabled')) {
             $tsaShift->sms_enabled = $request->boolean('sms_enabled');

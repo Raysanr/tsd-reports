@@ -297,4 +297,33 @@ class AutoCallTest extends TestCase
         $this->postJson(route('calls.tsa-management.toggle-smart-distribution'), ['enabled' => 1])->assertOk();
         $this->assertTrue(\App\Support\SmartDistribution::enabled());
     }
+
+    /** Per-TSA opt-in (2026-11-25): a TSA left out of Smart distribution keeps
+     *  only their own products and oldest-first order. */
+    public function test_a_tsa_left_out_of_smart_distribution_keeps_their_own_products(): void
+    {
+        \App\Models\Setting::set(\App\Support\SmartDistribution::SETTING_KEY, true);
+        $other = Product::whereKeyNot($this->product->id)->first();
+        $gemma = $this->tsa('Gemma', 'ready_to_call');
+        $gemma->products()->detach($other->id);
+        $gemma->update(['smart_distribution' => false]);
+        $julie = $this->tsa('Julie', 'ready_to_call');
+        $julie->products()->detach($other->id);
+
+        $roster = RoundRobinAssigner::eligibleRoster($other);
+        $this->assertFalse($roster->contains('id', $gemma->id));
+        $this->assertTrue($roster->contains('id', $julie->id));
+
+        $this->lead(null, ['product_id' => $other->id]);
+        $this->assertNull(AutoCall::next($gemma->fresh()));
+        $this->assertNotNull(AutoCall::next($julie->fresh()));
+    }
+
+    public function test_the_edit_form_saves_the_per_tsa_opt_in(): void
+    {
+        $this->actingAs(User::where('role', 'super_admin')->first() ?? User::factory()->create(['role' => 'super_admin']));
+        $tsa = TsaShift::where('tsa_key', 'Gemma')->first();
+        $this->postJson(route('calls.tsa-management.update', $tsa), ['smart_distribution' => 0, 'products' => [$this->product->id]])->assertOk();
+        $this->assertFalse($tsa->fresh()->smart_distribution);
+    }
 }

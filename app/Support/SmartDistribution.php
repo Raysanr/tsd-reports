@@ -11,10 +11,12 @@ use Illuminate\Support\Collection;
 
 /**
  * Smart distribution (explicit request, 2026-11-25). One global switch in
- * TSA Management (Setting smart_distribution_enabled, off by default).
+ * TSA Management (Setting smart_distribution_enabled, off by default), plus
+ * a per-TSA opt-in (tsa_shifts.smart_distribution, default true) — only
+ * TSAs who are in it are affected; the rest keep their own product list.
  *
- * While on:
- *  - Every TSA handles every product — the per-TSA product checkboxes
+ * While on, for a TSA who is in it:
+ *  - They handle every product — the per-TSA product checkboxes
  *    (product_tsa) are ignored for who gets which lead, and kept untouched
  *    so turning this off restores them exactly.
  *  - Auto-call's waiting queue (AutoCall::next()) is ordered so the product
@@ -37,20 +39,32 @@ class SmartDistribution
         return (bool) Setting::get(self::SETTING_KEY, false);
     }
 
+    /** Smart distribution applies to this TSA: switch on and they're in it. */
+    public static function appliesTo(?TsaShift $tsa): bool
+    {
+        return $tsa !== null && (bool) ($tsa->smart_distribution ?? true) && self::enabled();
+    }
+
     /** Products $tsa can receive leads for. */
     public static function productIdsFor(TsaShift $tsa): Collection
     {
-        return self::enabled()
+        return self::appliesTo($tsa)
             ? Product::pluck('id')
             : $tsa->products()->pluck('products.id');
     }
 
-    /** Base query for a product's roster (before status/active filters). */
+    /** Base query for a product's roster (before status/active filters):
+     *  everyone in Smart distribution plus whoever ticked this product. */
     public static function rosterQuery(Product $product)
     {
-        return self::enabled()
-            ? TsaShift::query()->orderBy('id')
-            : $product->tsas();
+        if (! self::enabled()) {
+            return $product->tsas();
+        }
+
+        return TsaShift::query()
+            ->where(fn ($q) => $q->where('smart_distribution', true)
+                ->orWhereIn('id', fn ($sub) => $sub->select('tsa_id')->from('product_tsa')->where('product_id', $product->id)))
+            ->orderBy('id');
     }
 
     /**

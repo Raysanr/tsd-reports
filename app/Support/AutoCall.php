@@ -126,7 +126,7 @@ class AutoCall
             ->where('high_rts', false) // HIGH RTS waits for a supervisor (2026-10-26)
             ->whereIn('product_id', $productIds);
         $query = $waiting();
-        if (SmartDistribution::enabled()) {
+        if (SmartDistribution::appliesTo($tsa)) {
             // Smart distribution (2026-11-25): this shift's leads still come
             // first; within them, stale leads, then the biggest backlog.
             $counts = $waiting()->setEagerLoads([])->reorder()
