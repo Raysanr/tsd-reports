@@ -194,7 +194,10 @@ class LogoutLeadRedistributor
 
         $moved = 0;
         foreach ($backlog as $lead) {
-            $eligibleTsaIds = $lead->product_id ? ($rosterByProduct[$lead->product_id] ?? []) : [];
+            // Smart distribution (2026-11-25): everyone online handles every product.
+            $eligibleTsaIds = \App\Support\SmartDistribution::enabled() && $lead->product_id
+                ? $online->pluck('id')->all()
+                : ($lead->product_id ? ($rosterByProduct[$lead->product_id] ?? []) : []);
 
             $tier1 = $online->filter(fn ($t) => in_array($t->id, $eligibleTsaIds, true))->values();
 

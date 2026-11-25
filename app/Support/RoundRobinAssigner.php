@@ -145,7 +145,7 @@ class RoundRobinAssigner
      *  again on a new day with no separate reset job needed). */
     public static function eligibleRoster(Product $product)
     {
-        return $product->tsas()->where('active', true)
+        return SmartDistribution::rosterQuery($product)->where('active', true)
             ->whereIn('status', self::ELIGIBLE_STATUSES)
             ->get()
             ->reject(fn (TsaShift $tsa) => $tsa->hasReachedDailyCap())

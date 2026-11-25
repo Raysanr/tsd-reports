@@ -253,4 +253,48 @@ class AutoCallTest extends TestCase
         $this->tsa('Julie', 'wrap_up');
         $this->getJson(route('calls.auto-call.next'))->assertJsonPath('lead.id', $lead->id);
     }
+
+    /** Smart distribution (2026-11-25): busiest product first; a lead waiting
+     *  10+ min jumps the line; every TSA handles every product. */
+    public function test_smart_distribution_dials_the_busiest_product_first_but_stale_leads_jump_the_line(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-25 16:00:00', 'Asia/Manila'));
+        \App\Models\Setting::set(\App\Support\SmartDistribution::SETTING_KEY, true);
+        $other = Product::whereKeyNot($this->product->id)->first();
+        $tsa = $this->tsa('Mariel', 'ready_to_call');
+        $tsa->products()->detach($other->id); // not ticked — smart mode ignores that
+
+        $small = $this->lead(null, ['product_id' => $other->id, 'pancake_created_at' => now()->subMinutes(5)]);
+        $busy1 = $this->lead(null, ['pancake_created_at' => now()->subMinutes(3)]);
+        $busy2 = $this->lead(null, ['pancake_created_at' => now()->subMinutes(2)]);
+        $stale = $this->lead(null, ['product_id' => $other->id, 'pancake_created_at' => now()->subMinutes(12)]);
+
+        $order = [];
+        foreach (range(1, 4) as $i) {
+            $lead = AutoCall::next($tsa->fresh());
+            $order[] = $lead->id;
+            $lead->update(['dialed_at' => now()]);
+        }
+        Carbon::setTestNow();
+
+        $this->assertSame([$stale->id, $busy1->id, $busy2->id, $small->id], $order);
+    }
+
+    public function test_smart_distribution_puts_every_tsa_on_every_products_roster(): void
+    {
+        $other = Product::whereKeyNot($this->product->id)->first();
+        $gemma = $this->tsa('Gemma', 'ready_to_call');
+        $gemma->products()->detach($other->id);
+
+        $this->assertFalse(RoundRobinAssigner::eligibleRoster($other)->contains('id', $gemma->id));
+        \App\Models\Setting::set(\App\Support\SmartDistribution::SETTING_KEY, true);
+        $this->assertTrue(RoundRobinAssigner::eligibleRoster($other)->contains('id', $gemma->id));
+    }
+
+    public function test_smart_distribution_switch_saves(): void
+    {
+        $this->actingAs(User::where('role', 'super_admin')->first() ?? User::factory()->create(['role' => 'super_admin']));
+        $this->postJson(route('calls.tsa-management.toggle-smart-distribution'), ['enabled' => 1])->assertOk();
+        $this->assertTrue(\App\Support\SmartDistribution::enabled());
+    }
 }

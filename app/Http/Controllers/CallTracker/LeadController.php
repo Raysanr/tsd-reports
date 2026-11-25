@@ -659,7 +659,7 @@ class LeadController extends Controller
             // silently limping along forever, but this at least keeps the
             // page itself alive for whoever hits it next before that's
             // noticed and fixed.
-            'products'              => $user->isAtLeastAdmin()
+            'products'              => $user->isAtLeastAdmin() || ($user->tsa && \App\Support\SmartDistribution::enabled())
                 ? Product::orderBy('sort_order')->when($selectedTeam, fn ($q) => $q->where('team', $selectedTeam))->get()
                 : ($user->tsa?->products()->orderBy('sort_order')->get() ?? collect()),
             'selectedProduct'       => $request->integer('product'),

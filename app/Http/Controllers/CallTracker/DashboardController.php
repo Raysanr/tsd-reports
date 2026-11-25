@@ -243,7 +243,12 @@ class DashboardController extends Controller
         if ($selectedTeam !== 'all') {
             $atRiskProductsQuery->where('team', $teamsConfig[$selectedTeam]['order_team']);
         }
-        $atRiskProducts = $atRiskProductsQuery->get()->filter(function ($product) {
+        // Smart distribution: every TSA handles every product, so a product is
+        // only at risk when nobody at all is available.
+        $atRiskProducts = \App\Support\SmartDistribution::enabled()
+            ? (\App\Models\TsaShift::where('active', true)->whereIn('status', \App\Support\RoundRobinAssigner::ELIGIBLE_STATUSES)->exists()
+                ? collect() : $atRiskProductsQuery->get())
+            : $atRiskProductsQuery->get()->filter(function ($product) {
             return $product->tsas->isNotEmpty()
                 && $product->tsas->every(fn ($tsa) => !$tsa->active || !in_array($tsa->status, \App\Support\RoundRobinAssigner::ELIGIBLE_STATUSES, true));
         })->values();

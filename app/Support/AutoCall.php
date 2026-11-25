@@ -117,17 +117,27 @@ class AutoCall
             return $own;
         }
 
-        $productIds = $tsa->products()->pluck('products.id');
+        $productIds = SmartDistribution::productIdsFor($tsa);
         if ($productIds->isEmpty() || $tsa->hasReachedDailyCap()) {
             return null;
         }
-        $candidates = self::callable(Lead::query())
+        $waiting = fn () => self::callable(Lead::query())
             ->where('status', 'unassigned')
             ->where('high_rts', false) // HIGH RTS waits for a supervisor (2026-10-26)
-            ->whereIn('product_id', $productIds)
-            ->tap(fn ($q) => self::hotLeadsFirst($q))
-            ->limit(5)
-            ->get();
+            ->whereIn('product_id', $productIds);
+        $query = $waiting();
+        if (SmartDistribution::enabled()) {
+            // Smart distribution (2026-11-25): this shift's leads still come
+            // first; within them, stale leads, then the biggest backlog.
+            $counts = $waiting()->setEagerLoads([])->reorder()
+                ->selectRaw('product_id, COUNT(*) AS waiting')->groupBy('product_id')
+                ->pluck('waiting', 'product_id');
+            $query->orderByRaw('CASE WHEN pancake_created_at >= ? THEN 0 ELSE 1 END', [self::hotSince()->toDateTimeString()]);
+            SmartDistribution::orderWaiting($query, $counts);
+        } else {
+            self::hotLeadsFirst($query);
+        }
+        $candidates = $query->limit(5)->get();
 
         foreach ($candidates as $lead) {
             $claimed = DB::table('leads')->where('id', $lead->id)->where('status', 'unassigned')

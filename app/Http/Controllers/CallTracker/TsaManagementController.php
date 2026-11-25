@@ -101,6 +101,7 @@ class TsaManagementController extends Controller
             'midnightAutoLogoutEnabled' => (bool) Setting::get('midnight_auto_logout_enabled', true),
             'autoSmsEnabled' => LeadAutoText::enabled(),
             'autoCallEnabled' => \App\Support\AutoCall::enabled(),
+            'smartDistributionEnabled' => \App\Support\SmartDistribution::enabled(),
             'wrapUpSeconds' => \App\Console\Commands\ExpireWrapUpStatuses::seconds(),
         ];
 
@@ -449,6 +450,22 @@ class TsaManagementController extends Controller
             ? 'Auto-call turned on — every TSA with a Dialer address gets their next lead dialed automatically as soon as they log in (and after each call).'
             : 'Auto-call turned off — back to round-robin and click-to-call for everyone.';
         ActivityLogger::log('tsa.auto_call_toggled', null, $message);
+
+        return $request->wantsJson()
+            ? response()->json(['success' => true, 'message' => $message, 'enabled' => $enabled])
+            : redirect()->route('calls.tsa-management')->with('success', $message);
+    }
+
+    /** Global smart distribution switch (2026-11-25) — see App\Support\SmartDistribution. */
+    public function toggleSmartDistribution(Request $request)
+    {
+        $enabled = $request->boolean('enabled');
+        Setting::set(\App\Support\SmartDistribution::SETTING_KEY, $enabled);
+
+        $message = $enabled
+            ? 'Smart distribution turned on — every TSA gets every product; products with the most waiting leads go first.'
+            : 'Smart distribution turned off — back to each TSA\'s own product list, oldest lead first.';
+        ActivityLogger::log('tsa.smart_distribution_toggled', null, $message);
 
         return $request->wantsJson()
             ? response()->json(['success' => true, 'message' => $message, 'enabled' => $enabled])

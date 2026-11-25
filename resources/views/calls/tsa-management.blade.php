@@ -110,6 +110,9 @@
             ['id' => 'autoCall', 'label' => 'Auto-call', 'on' => $autoCallEnabled, 'route' => 'calls.tsa-management.toggle-auto-call',
              'descOn' => "Dials the next lead automatically.",
              'descOff' => 'Off. TSAs dial each lead.'],
+            ['id' => 'smartDistribution', 'label' => 'Smart distribution', 'on' => $smartDistributionEnabled, 'route' => 'calls.tsa-management.toggle-smart-distribution',
+             'descOn' => 'Every TSA gets every product. Busiest product goes first; a lead waiting 10+ min jumps the line.',
+             'descOff' => "Off. TSAs get only their own products, oldest lead first."],
         ],
         'messages' => [
             ['id' => 'autoSms', 'label' => 'Auto-text', 'on' => $autoSmsEnabled, 'route' => 'calls.tsa-management.toggle-auto-sms',
@@ -532,6 +535,45 @@
                 .then((data) => window.tsaSettingsSaveState('saved'))
                 .catch(() => { paintAutoCall(!next); window.tsaSettingsSaveState('error'); window.showToast?.('Could not save — try again.', 'error'); })
                 .finally(() => { autoCallToggle.disabled = false; });
+        });
+    }
+
+    // Smart distribution (2026-11-25) — same shape as Auto-call above; also
+    // flips every "Gets leads for" cell between "All products" and the
+    // TSA's own list.
+    const smartToggle = document.getElementById('smartDistributionToggle');
+    const smartKnob   = document.getElementById('smartDistributionKnob');
+    if (smartToggle && smartKnob) {
+        const paintSmart = (enabled) => {
+            smartToggle.dataset.enabled = enabled ? '1' : '0';
+            smartToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false'); syncRuleDesc(smartToggle);
+            smartToggle.classList.toggle('bg-primary', enabled);
+            smartToggle.classList.toggle('bg-slate-300', !enabled);
+            smartToggle.classList.toggle('dark:bg-slate-600', !enabled);
+            smartKnob.classList.toggle('translate-x-6', enabled);
+            smartKnob.classList.toggle('translate-x-1', !enabled);
+            document.querySelectorAll('[data-smart-view]').forEach((el) => el.classList.toggle('hidden', !enabled));
+            document.querySelectorAll('[data-manual-view]').forEach((el) => el.classList.toggle('hidden', enabled));
+            document.querySelectorAll('[data-smart-lock]').forEach((el) => { el.inert = enabled; el.classList.toggle('opacity-50', enabled); });
+        };
+        smartToggle.addEventListener('click', () => {
+            const next = smartToggle.dataset.enabled !== '1';
+            paintSmart(next);
+            smartToggle.disabled = true; window.tsaSettingsSaveState('saving');
+            fetch(smartToggle.dataset.action, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                },
+                body: `enabled=${next ? '1' : '0'}`,
+            })
+                .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+                .then(() => window.tsaSettingsSaveState('saved'))
+                .catch(() => { paintSmart(!next); window.tsaSettingsSaveState('error'); window.showToast?.('Could not save — try again.', 'error'); })
+                .finally(() => { smartToggle.disabled = false; });
         });
     }
 

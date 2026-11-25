@@ -145,7 +145,13 @@
                             {{ $statuses[$tsa->status]['label'] ?? $tsa->status }}
                         </span>
                     </td>
-                    <td class="px-5 py-4" data-tsa-handles-count="{{ $tsa->id }}">
+                    <td class="px-5 py-4">
+                        {{-- Smart distribution on: everyone handles every product. --}}
+                        <div data-smart-view class="w-40 {{ ($smartDistributionEnabled ?? false) ? '' : 'hidden' }}">
+                            <span class="text-xs text-slate-600 dark:text-slate-300"><b class="font-bold text-slate-800 dark:text-slate-100">All</b> {{ $products->count() }} products · Smart</span>
+                            <div class="mt-1.5 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden"><div class="h-full w-full rounded-full bg-primary"></div></div>
+                        </div>
+                        <div data-manual-view data-tsa-handles-count="{{ $tsa->id }}" class="{{ ($smartDistributionEnabled ?? false) ? 'hidden' : '' }}">
                         {{-- Same markup as calls.js tsaRefreshCounts() — keep the two in step. --}}
                         @if($handledNames->isEmpty())
                         <span class="inline-flex items-center gap-1.5 text-xs font-semibold text-orange-800 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/30 rounded-lg px-2.5 py-1.5 whitespace-nowrap">
@@ -158,6 +164,7 @@
                             <div class="mt-1.5 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden"><div class="h-full rounded-full bg-primary" style="width: {{ $products->count() ? round($handledNames->count() / $products->count() * 100) : 0 }}%"></div></div>
                         </div>
                         @endif
+                        </div>
                     </td>
                     <td class="px-5 py-4 text-right">
                         <button type="button" data-tsa-row-toggle="{{ $tsa->id }}"
@@ -223,7 +230,13 @@
                                     </p>
                                     <span data-tsa-save-status aria-live="polite" class="text-[11px] font-mono text-slate-400 transition-opacity duration-300 opacity-0"></span>
                                 </div>
-                                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                {{-- Smart distribution on: locked (inert, NOT disabled — disabled
+                                     boxes drop out of the autosave POST and would wipe this TSA's
+                                     saved list). Their ticks come back into effect when it's off. --}}
+                                <p data-smart-view class="mb-2 text-xs text-slate-500 dark:text-slate-400 {{ ($smartDistributionEnabled ?? false) ? '' : 'hidden' }}">
+                                    Smart distribution is on, so {{ $tsa->display_name }} gets every product. These choices apply again when it's turned off.
+                                </p>
+                                <div data-smart-lock class="grid grid-cols-2 sm:grid-cols-3 gap-2 transition-opacity {{ ($smartDistributionEnabled ?? false) ? 'opacity-50' : '' }}" @if($smartDistributionEnabled ?? false) inert @endif>
                                     @foreach($teamProducts as $product)
                                         <label class="group relative flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 px-3.5 py-2.5 text-sm text-slate-700 dark:text-slate-200 cursor-pointer select-none shadow-xs transition-all duration-150
                                                       hover:border-slate-300 hover:bg-slate-50 dark:hover:border-slate-600 dark:hover:bg-slate-800
