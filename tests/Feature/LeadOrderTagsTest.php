@@ -170,6 +170,36 @@ class LeadOrderTagsTest extends TestCase
         $this->assertSame(['GEMMA', 'SCAR CREAM'], Order::where('pancake_order_id', '9001')->value('raw_tags'));
     }
 
+    public function test_adding_a_tag_picks_the_exact_spelling_when_pancake_has_a_case_duplicate(): void
+    {
+        // Pancake had "Mariel" (#519, never sticks) listed before "MARIEL"
+        // (#313) — picking "MARIEL" must write #313, not the first case-
+        // insensitive match (2026-11-25).
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $lead  = $this->leadFor($gemma);
+        $user  = User::create(['name' => 'Gemma User', 'email' => 'gemma2@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+        Order::create(['pancake_order_id' => '9001', 'team' => 'SH Naturals', 'status_code' => 0, 'raw_tags' => [], 'synced_at' => now()]);
+
+        $tagsOnOrder = [];
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::response(['success' => true, 'data' => [
+                ['id' => 519, 'name' => 'Mariel'],
+                ['id' => 313, 'name' => 'MARIEL'],
+            ]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => function ($request) use (&$tagsOnOrder) {
+                if ($request->method() === 'PUT') {
+                    $tagsOnOrder = $request['tags'] ?? [];
+                }
+                return Http::response(['success' => true, 'data' => ['id' => 9001, 'tags' => $tagsOnOrder]], 200);
+            },
+        ]);
+
+        $this->actingAs($user)->postJson(route('calls.leads.tags.add', $lead), ['tag' => 'MARIEL'])
+            ->assertOk()->assertJson(['success' => true]);
+
+        Http::assertSent(fn ($r) => $r->method() === 'PUT' && collect($r['tags'])->pluck('id')->all() === [313]);
+    }
+
     public function test_a_tsa_cannot_add_a_tag_on_another_tsas_lead(): void
     {
         $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();

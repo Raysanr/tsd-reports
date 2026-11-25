@@ -185,7 +185,7 @@ class PancakeOrderTagApi
         // here, not trying to preserve whitespace client-side.
         $catalog = collect($this->listTags());
         $matched = collect($tagNames)->mapWithKeys(function ($name) use ($catalog) {
-            return [$name => $catalog->first(fn ($t) => strcasecmp(trim($t['name'] ?? ''), trim($name)) === 0)];
+            return [$name => self::matchCatalogTag($catalog, $name)];
         });
 
         foreach ($matched->filter(fn ($tag) => $tag === null)->keys() as $name) {
@@ -1183,7 +1183,7 @@ class PancakeOrderTagApi
             $tagCatalog     = collect($this->listTags());
             $wantedTagNames = collect([$upsellTagName, $tsaTagName])->filter()->unique()->values();
             $matchedTags    = $wantedTagNames
-                ->map(fn ($name) => $tagCatalog->first(fn ($t) => strcasecmp(trim($t['name'] ?? ''), trim($name)) === 0))
+                ->map(fn ($name) => self::matchCatalogTag($tagCatalog, $name))
                 ->filter();
 
             $existingTags = collect($order['tags'] ?? []);
@@ -1406,6 +1406,20 @@ class PancakeOrderTagApi
      * Writes to the same order now take turns (a per-order lock), with a
      * short settle after the previous write before reading again.
      */
+    /** The catalog tag for $name: the exact spelling first (trimmed), else
+     *  the first one that matches ignoring case. Pancake keeps tags that
+     *  differ only in case as separate tags (2026-11-25: "Mariel" #519,
+     *  never on an order, and "MARIEL" #313, on 5,281) — matching ignoring
+     *  case alone picked #519 for "MARIEL", the write never landed, and the
+     *  TSA saw "Could not add this tag in Pancake". */
+    private static function matchCatalogTag(\Illuminate\Support\Collection $catalog, string $name): ?array
+    {
+        $wanted = trim($name);
+
+        return $catalog->first(fn ($t) => trim($t['name'] ?? '') === $wanted)
+            ?? $catalog->first(fn ($t) => strcasecmp(trim($t['name'] ?? ''), $wanted) === 0);
+    }
+
     private function withOrderWriteLock(string $orderId, callable $write)
     {
         $lock = Cache::lock("pancake_order_write_{$orderId}", 40);
