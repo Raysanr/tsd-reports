@@ -96,4 +96,31 @@ class TelesalesCardAutoTest extends TestCase
             ->assertSee('data-subteam-count value="1" placeholder="0" class="tsa-in" readonly', false)
             ->assertDontSee('Automatic from Sales Summary');
     }
+
+    /** 2026-11-26: after 5 minutes the last card is still shown at once (and
+     *  rebuilt after the response), instead of the visitor waiting on it. */
+    public function test_an_expired_card_is_shown_at_once_and_rebuilt_after_the_response(): void
+    {
+        $calls = 0;
+        $this->mock(TsaSalesReportController::class)->shouldReceive('overallByDate')
+            ->andReturnUsing(function () use (&$calls) {
+                $calls++;
+                $d = $this->date;
+
+                return ['days' => [$d => ['gross_sales' => 1000 * $calls, 'net_income' => 0, 'total_orders' => 1,
+                    'call_counts' => ['answered' => 0, 'unanswered' => 0, 'confirmed_via_call' => 0, 'upsell_confirmation' => 0]]],
+                    'teams' => [], 'tsas' => [$d => []]];
+            });
+
+        $this->assertEquals(1000, TelesalesCardAuto::forDates([$this->date])[$this->date]->gross_sales);
+        $built = $calls;
+
+        $this->travel(6)->minutes();
+        $this->assertEquals(1000, TelesalesCardAuto::forDates([$this->date])[$this->date]->gross_sales);
+        $this->assertSame($built, $calls, 'no rebuild while the page is being served');
+
+        app(\Illuminate\Support\Defer\DeferredCallbackCollection::class)->invoke(); // after the response
+        $this->assertGreaterThan($built, $calls);
+        $this->assertNotEquals(1000, TelesalesCardAuto::forDates([$this->date])[$this->date]->gross_sales);
+    }
 }

@@ -18,11 +18,19 @@ use Illuminate\Support\Facades\Cache;
  *   counting 1; Working TSAs is their sum.
  *
  * The card is read-only (2026-11-16): always these figures, never typed or
- * saved ones. Built for a range at once and kept 5 minutes.
+ * saved ones. Built for a range at once.
+ *
+ * Caching (2026-11-26, "so slow to load the dashboard"): fresh for 5
+ * minutes; after that, up to an hour, the last built card is shown at once
+ * and rebuilt after the response is sent (Cache::flexible), so no visitor
+ * waits on the rebuild — it reads TSD and Partners Overall Performance.
  */
 class TelesalesCardAuto
 {
     private const CACHE_SECONDS = 300;
+
+    /** How long an expired card may still be shown while it rebuilds. */
+    private const STALE_SECONDS = 3600;
 
     /** The card's two TSA-count slots. */
     public const COUNT_SLOTS = [['slug' => 'sh_ecom', 'name' => 'SH ECOM'], ['slug' => 'partners', 'name' => 'PARTNERS']];
@@ -46,7 +54,7 @@ class TelesalesCardAuto
         $from = reset($dates);
         $to = end($dates);
 
-        $built = Cache::remember("telesales-card-auto:v3:{$from}:{$to}", self::CACHE_SECONDS, fn () => self::build($from, $to));
+        $built = Cache::flexible("telesales-card-auto:v3:{$from}:{$to}", [self::CACHE_SECONDS, self::STALE_SECONDS], fn () => self::build($from, $to));
 
         return collect($built)->only($dates)->filter()
             ->map(fn (array $attributes) => new TelesalesSummary($attributes))->all();
