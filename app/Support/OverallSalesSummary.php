@@ -26,7 +26,7 @@ class OverallSalesSummary
     public const SH_ECOM_KEY = 'SH E-COM';
 
     /** Sheet order, keyed by each partner's name in config('partners'). */
-    private const PARTNER_LABELS = ['M&J' => 'M&J ENTERPRISE', 'PEAK.CO' => 'PEAK ENTERPRISE', 'MLC' => 'MLC'];
+    private const PARTNER_LABELS = ['M&J' => 'M&J ENTERPRISE', 'PEAK.CO' => 'PEAK ENTERPRISE', 'MLC' => 'MLC', 'M&K' => 'M&K ENTERPRISE'];
 
     /**
      * @param  array  $tsd  TsaSalesReportController::overallByDate() on TSD

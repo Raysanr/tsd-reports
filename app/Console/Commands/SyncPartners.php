@@ -6,10 +6,10 @@ use App\Services\PartnerFeed;
 use App\Services\PartnerSync;
 use Illuminate\Console\Command;
 
-/** Pulls PEAK.CO / M&J / MLC data into Partners Data Management (PartnerSync). */
+/** Pulls PEAK.CO / M&J / MLC / M&K data into Partners Data Management (PartnerSync). */
 class SyncPartners extends Command
 {
-    protected $signature = 'partners:sync {partner? : peak-co, mj or mlc — all when left out}';
+    protected $signature = 'partners:sync {partner? : peak-co, mj, mlc or mk — all when left out}';
 
     protected $description = 'Sync partner products, TSAs and orders into Partners Data Management';
 

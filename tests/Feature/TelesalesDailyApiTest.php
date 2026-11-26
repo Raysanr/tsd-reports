@@ -129,7 +129,7 @@ class TelesalesDailyApiTest extends TestCase
         $p = $this->getJson(self::URL, ['Authorization' => 'Bearer secret-token'])->assertOk()->json('days.0.partnership');
 
         $this->assertEqualsWithDelta(0.7, $p['shareRate'], 0.0001);
-        $this->assertEqualsCanonicalizing(['PEAK.CO', 'M&J', 'MLC'], array_column($p['partners'], 'partner'));
+        $this->assertEqualsCanonicalizing(['PEAK.CO', 'M&J', 'MLC', 'M&K'], array_column($p['partners'], 'partner'));
         foreach (['leads', 'catered', 'orders', 'grossSales', 'ibOpex', 'partnershipSales'] as $field) {
             $this->assertArrayHasKey($field, $p['partners'][0]);
         }

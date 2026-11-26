@@ -517,6 +517,7 @@
         ['name' => 'PEAK.CO', 'badge' => 'PK', 'color' => '#0f766e', 'url' => 'https://peak-co-production.up.railway.app'],
         ['name' => 'M&J',     'badge' => 'MJ', 'color' => '#7c3aed', 'url' => 'https://mj-leads-production.up.railway.app'],
         ['name' => 'MLC',     'badge' => 'MLC', 'color' => '#2563eb', 'url' => 'https://mlc-leads-production.up.railway.app'],
+        ['name' => 'M&K',     'badge' => 'MK', 'color' => '#0F6466', 'url' => 'https://mk-leads-production.up.railway.app'],
     ];
 @endphp
 <div class="page">
