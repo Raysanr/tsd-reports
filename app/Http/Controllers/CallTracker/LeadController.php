@@ -1281,11 +1281,16 @@ class LeadController extends Controller
             return response()->json(['success' => false, 'error' => 'Saved locally, but could not add this product to the order in Pancake — try again or add it directly in POS.'], 500);
         }
 
+        // Daily Target countdown (2026-11-27) — only for the lead's own TSA.
+        $target = ($lead->tsa && $user->tsa?->is($lead->tsa)) ? \App\Support\TsaDailyTarget::for($lead->tsa) : null;
+
         return response()->json(array_filter([
             'success' => true,
             'message' => "Added \"{$data['name']}\" to order #{$lead->pancake_order_id}.",
             'warning' => $upsellTagExists ? null : "No upsell tag in Pancake for \"{$data['name']}\" — add an UPSELL TSD tag to this order in POS so it counts as an upsell.",
-        ]));
+            'added'   => $amount,
+            'target'  => $target,
+        ], fn ($v) => $v !== null));
     }
 
     /**

@@ -242,6 +242,8 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules', 'normal-pages
         Route::post('/leads/{lead}/callback-snooze', [\App\Http\Controllers\CallTracker\CallbackReminderController::class, 'snooze'])->name('leads.callback-snooze');
         Route::post('/tsa-status', [\App\Http\Controllers\CallTracker\TsaStatusController::class, 'update'])->name('tsa-status.update');
         Route::get('/api/own-status', [\App\Http\Controllers\CallTracker\TsaStatusController::class, 'own'])->name('tsa-status.own');
+        // Daily Target countdown (2026-11-27)
+        Route::get('/api/own-target', [\App\Http\Controllers\CallTracker\TsaStatusController::class, 'ownTarget'])->name('tsa-status.own-target');
 
         // Opened to a TSA too (explicit follow-up, 2026-09-02: "i want tsa
         // can see access this tabs — dashboard, leads, call log") — Dashboard

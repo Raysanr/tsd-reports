@@ -164,6 +164,18 @@ class TsaStatusController extends Controller
         ]);
     }
 
+    /** The signed-in TSA's Daily Target countdown (topbar), see TsaDailyTarget.
+     *  {target: null} when no Daily Target is set for this month. */
+    public function ownTarget()
+    {
+        $tsa = Auth::user()->tsa;
+        if (!$tsa) {
+            abort(403);
+        }
+
+        return response()->json(['target' => \App\Support\TsaDailyTarget::for($tsa)]);
+    }
+
     /**
      * TSA Logs — the timestamped history behind the topbar dropdown, so an
      * admin can see when each TSA actually logged in/took a break/etc.

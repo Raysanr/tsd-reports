@@ -548,6 +548,20 @@
             @stack('topbar-right')
 
             @if(auth()->user() && !auth()->user()->isAtLeastAdmin() && auth()->user()->tsa)
+            {{-- Daily Target countdown (2026-11-27) — filled by calls.js
+                 (initDailyTarget), stays hidden when no target is set. --}}
+            <div id="dailyTarget" class="hidden shrink-0 min-w-[11rem] rounded-xl border border-line dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 px-3 py-1.5" role="status" aria-live="polite">
+                <div class="flex items-baseline justify-between gap-3">
+                    <span class="text-[10px] uppercase tracking-wider font-semibold text-ink-muted dark:text-slate-400">Today's target</span>
+                    <span id="dailyTargetPct" class="text-[10px] font-mono text-ink-muted dark:text-slate-400"></span>
+                </div>
+                <p id="dailyTargetMain" class="text-sm font-bold font-mono text-ink dark:text-slate-100 leading-tight"></p>
+                <div class="mt-1 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                    <div id="dailyTargetBar" class="h-full rounded-full bg-emerald-500 transition-all duration-500" style="width:0%"></div>
+                </div>
+                <p id="dailyTargetSub" class="mt-0.5 text-[10px] font-mono text-ink-muted dark:text-slate-400"></p>
+            </div>
+
             @php $ownStatus = auth()->user()->tsa->status ?? \App\Models\TsaShift::STATUS_LOGOUT; @endphp
             @include('calls.partials.tsa-status-panel', [
                 'id'       => 'topbar',
