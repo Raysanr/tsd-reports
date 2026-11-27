@@ -1285,28 +1285,102 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
-function renderMessage(msg) {
+// Pancake's original_message is raw HTML from Messenger (often just an
+// empty "<div></div>" wrapper around a sticker/photo) — convert it to plain
+// text so tags never render literally in the bubble.
+function messagePlainText(msg) {
+    const raw = msg.original_message || msg.message || '';
+    if (!/[<&]/.test(raw)) return raw.trim();
+    const div = document.createElement('div');
+    div.innerHTML = raw.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(div|p)>/gi, '\n');
+    return (div.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function messageInitials(name) {
+    return (name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+}
+
+function messageDayLabel(d) {
+    const today = new Date();
+    const yest = new Date(); yest.setDate(today.getDate() - 1);
+    if (d.toDateString() === today.toDateString()) return 'Today';
+    if (d.toDateString() === yest.toDateString()) return 'Yesterday';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function messageIsStaff(msg) {
     // A TSA/admin reply has admin_id/uid; an automated broadcast from the
     // page itself has neither but its from.id equals the page's own FB ID —
     // both are "our side" of the conversation, just not a customer message.
-    const isStaff = !!(msg.from && (msg.from.admin_id || msg.from.uid || (msg.page_id && msg.from.id === msg.page_id)));
-    const senderName = (msg.from && msg.from.name) || (isStaff ? 'Staff' : 'Customer');
-    const when = msg.inserted_at ? new Date(msg.inserted_at).toLocaleString() : '';
+    return !!(msg.from && (msg.from.admin_id || msg.from.uid || (msg.page_id && msg.from.id === msg.page_id)));
+}
 
-    const attachments = (msg.attachments || [])
-        .filter((a) => a.type === 'photo' || a.type === 'sticker')
-        .map((a) => `<img src="${escapeHtml(a.url)}" class="mt-2 rounded-lg max-w-[220px] max-h-[220px] object-cover">`)
-        .join('');
+// Renders the whole thread: day separators, consecutive messages from the
+// same sender grouped (name + avatar shown once per group).
+function renderConversation(messages) {
+    let html = '';
+    let lastDay = null;
+    let lastSender = null;
 
-    const text = escapeHtml(msg.original_message || msg.message || '');
+    messages.forEach((msg, i) => {
+        const date = msg.inserted_at ? new Date(msg.inserted_at) : null;
+        const day = date ? date.toDateString() : null;
+        if (day && day !== lastDay) {
+            html += `<div class="flex items-center gap-3 py-2">
+                <div class="flex-1 h-px bg-slate-200 dark:bg-slate-800"></div>
+                <span class="text-[11px] font-medium text-slate-400 dark:text-slate-500">${escapeHtml(messageDayLabel(date))}</span>
+                <div class="flex-1 h-px bg-slate-200 dark:bg-slate-800"></div>
+            </div>`;
+            lastDay = day;
+            lastSender = null;
+        }
+
+        const isStaff = messageIsStaff(msg);
+        const senderName = (msg.from && msg.from.name) || (isStaff ? 'Staff' : 'Customer');
+        const senderKey = (msg.from && msg.from.id) || senderName;
+        const next = messages[i + 1];
+        const nextSame = next && ((next.from && next.from.id) || '') === ((msg.from && msg.from.id) || '')
+            && next.inserted_at && date && new Date(next.inserted_at).toDateString() === day;
+        const firstInGroup = senderKey !== lastSender;
+        lastSender = senderKey;
+
+        html += renderMessage(msg, { isStaff, senderName, date, firstInGroup, lastInGroup: !nextSame });
+    });
+    return html;
+}
+
+function renderMessage(msg, ctx) {
+    const { isStaff, senderName, date, firstInGroup, lastInGroup } = ctx;
+    const time = date ? date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
+    const text = escapeHtml(messagePlainText(msg));
+
+    const media = (msg.attachments || []).filter((a) => a.type === 'photo' || a.type === 'sticker');
+    const mediaHtml = media.map((a) => a.type === 'sticker'
+        ? `<img src="${escapeHtml(a.url)}" class="w-20 h-20 object-contain" loading="lazy">`
+        : `<a href="${escapeHtml(a.url)}" target="_blank" rel="noopener"><img src="${escapeHtml(a.url)}" class="rounded-2xl max-w-[240px] max-h-[240px] object-cover ring-1 ring-black/5" loading="lazy"></a>`
+    ).join('');
+
+    const bubbleShape = isStaff
+        ? `rounded-2xl ${firstInGroup ? '' : 'rounded-tr-md'} ${lastInGroup ? '' : 'rounded-br-md'}`
+        : `rounded-2xl ${firstInGroup ? '' : 'rounded-tl-md'} ${lastInGroup ? '' : 'rounded-bl-md'}`;
+    const bubbleColor = isStaff
+        ? 'bg-primary text-white shadow-sm shadow-primary/20'
+        : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 shadow-sm ring-1 ring-slate-900/5 dark:ring-white/5';
+
+    const avatar = !isStaff
+        ? (lastInGroup
+            ? `<div class="shrink-0 w-7 h-7 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-600 text-[10px] font-semibold text-slate-600 dark:text-slate-200 flex items-center justify-center">${escapeHtml(messageInitials(senderName))}</div>`
+            : '<div class="shrink-0 w-7"></div>')
+        : '';
 
     return `
-    <div class="flex ${isStaff ? 'justify-end' : 'justify-start'}">
-        <div class="max-w-[80%] ${isStaff ? 'bg-primary text-white' : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'} rounded-xl px-3 py-2">
-            <p class="text-[10px] font-bold uppercase tracking-wide ${isStaff ? 'text-yellow-100' : 'text-slate-400'} mb-0.5">${escapeHtml(senderName)}</p>
-            ${text ? `<p class="whitespace-pre-wrap break-words">${text}</p>` : ''}
-            ${attachments}
-            <p class="text-[10px] ${isStaff ? 'text-yellow-100' : 'text-slate-400'} mt-1">${escapeHtml(when)}</p>
+    <div class="flex ${isStaff ? 'justify-end' : 'justify-start'} items-end gap-2 ${firstInGroup ? 'mt-3' : 'mt-0.5'}">
+        ${avatar}
+        <div class="flex flex-col ${isStaff ? 'items-end' : 'items-start'} max-w-[78%]">
+            ${firstInGroup ? `<span class="text-[11px] font-medium text-slate-400 dark:text-slate-500 mb-1 px-1">${escapeHtml(senderName)}</span>` : ''}
+            ${text ? `<div class="${bubbleShape} ${bubbleColor} px-3.5 py-2 text-[14px] leading-relaxed whitespace-pre-wrap break-words">${text}</div>` : ''}
+            ${mediaHtml ? `<div class="flex flex-col gap-1 ${text ? 'mt-1' : ''} ${isStaff ? 'items-end' : 'items-start'}">${mediaHtml}</div>` : ''}
+            ${lastInGroup && time ? `<span class="text-[10px] text-slate-400 dark:text-slate-500 mt-1 px-1">${escapeHtml(time)}</span>` : ''}
         </div>
     </div>`;
 }
@@ -1479,7 +1553,7 @@ function loadConversationInto(leadId, body, showLoading) {
             // timestamps), so reversing here put the newest message at the
             // top instead of the bottom. Render in the order Pancake sends
             // it, no reverse.
-            body.innerHTML = data.messages.map(renderMessage).join('');
+            body.innerHTML = renderConversation(data.messages);
             body.scrollTop = body.scrollHeight;
         })
         .catch(() => {

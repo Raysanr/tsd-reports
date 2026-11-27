@@ -48,38 +48,45 @@
      Pancake's own CSP (frame-ancestors) blocks embedding its page on any
      other domain, so this renders the message data ourselves instead.
      Opened via openConversationModal(leadId) (see calls.js). --}}
-<div id="conversationModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6 opacity-0 transition-opacity duration-200">
-    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg h-[80vh] flex flex-col overflow-hidden opacity-0 scale-95 transition-all duration-200">
-        <div class="flex items-center justify-between px-5 py-3 border-b border-slate-200 dark:border-slate-700 shrink-0">
-            <h3 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono flex items-center gap-2">
-                <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-                </svg>
-                Conversation
-            </h3>
+<div id="conversationModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-slate-950/50 backdrop-blur-sm p-6 opacity-0 transition-opacity duration-200">
+    <div class="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl ring-1 ring-slate-900/5 dark:ring-white/10 w-full max-w-lg h-[82vh] flex flex-col overflow-hidden opacity-0 scale-95 transition-all duration-200">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center">
+                    <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                    </svg>
+                </div>
+                <div class="leading-tight">
+                    <h3 class="text-[15px] font-semibold text-slate-800 dark:text-slate-100">Conversation</h3>
+                    <p class="text-xs text-slate-400 dark:text-slate-500">Messenger via Pancake</p>
+                </div>
+            </div>
             <button type="button" onclick="closeConversationModal()" aria-label="Close"
-                    class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+                    class="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
                 </svg>
             </button>
         </div>
-        <div id="conversationModalBody" class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50 dark:bg-slate-950 font-mono text-sm">
+        <div id="conversationModalBody" class="flex-1 overflow-y-auto px-4 py-3 bg-slate-50/70 dark:bg-slate-950 text-sm">
             {{-- Populated by openConversationModal() in calls.js --}}
         </div>
         {{-- Reply box (explicit request, 2026-10-16) — REAL send to the
              customer's Messenger via submitConversationReply() in calls.js.
              Enter sends, Shift+Enter adds a new line. --}}
         <form id="conversationReplyForm" onsubmit="return submitConversationReply(event)"
-              class="flex items-end gap-2 px-3 py-3 border-t border-slate-200 dark:border-slate-700 shrink-0 bg-white dark:bg-slate-900">
-            <textarea id="conversationReplyInput" rows="1" maxlength="2000" placeholder="Reply to customer…"
-                      class="flex-1 resize-none max-h-32 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/40"></textarea>
-            <button type="submit" id="conversationReplySend" aria-label="Send reply"
-                    class="shrink-0 p-2.5 rounded-xl bg-primary text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
-                </svg>
-            </button>
+              class="px-4 py-3 border-t border-slate-100 dark:border-slate-800 shrink-0 bg-white dark:bg-slate-900">
+            <div class="flex items-end gap-2 rounded-2xl bg-slate-100 dark:bg-slate-800 pl-4 pr-1.5 py-1.5 ring-1 ring-transparent focus-within:ring-primary/40 focus-within:bg-white dark:focus-within:bg-slate-800 transition">
+                <textarea id="conversationReplyInput" rows="1" maxlength="2000" placeholder="Reply to customer…"
+                          class="flex-1 resize-none max-h-32 bg-transparent border-0 p-0 py-1.5 text-sm text-slate-700 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-0"></textarea>
+                <button type="submit" id="conversationReplySend" aria-label="Send reply"
+                        class="shrink-0 w-9 h-9 flex items-center justify-center rounded-xl bg-primary text-white shadow-sm shadow-primary/30 hover:opacity-90 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
+                    <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.27 3.13a59.77 59.77 0 0118.22 8.87 59.77 59.77 0 01-18.22 8.88L6 12zm0 0h7.5"/>
+                    </svg>
+                </button>
+            </div>
         </form>
     </div>
 </div>
