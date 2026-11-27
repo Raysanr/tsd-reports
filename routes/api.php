@@ -22,3 +22,9 @@ Route::middleware([App\Http\Middleware\TelesalesApiToken::class . ':mc', 'thrott
     Route::get('/external/v1/telesales/mc/summary', [App\Http\Controllers\Api\TelesalesMcController::class, 'summary'])->name('api.telesales.mc.summary');
     Route::get('/external/v1/telesales/mc/roster', [App\Http\Controllers\Api\TelesalesMcController::class, 'roster'])->name('api.telesales.mc.roster');
 });
+
+// Partner apps' Daily Target bubble (2026-11-27): their Individual TSA Daily
+// Target from Partners Data Management → Projections. Shared partner secret.
+Route::get('/partner/v1/daily-target', App\Http\Controllers\Api\PartnerDailyTargetController::class)
+    ->middleware([App\Http\Middleware\PartnerFeedToken::class, 'throttle:120,1'])
+    ->name('api.partner.daily-target');

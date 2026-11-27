@@ -82,9 +82,15 @@ class TsaDailyTarget
     public static function targetFor(TsaShift $tsa, Carbon $date): ?float
     {
         $shiftKey = self::shiftKeyFor($tsa);
-        if ($shiftKey === null) {
-            return null;
-        }
+
+        return $shiftKey === null ? null : self::targetForShiftKey($shiftKey, $date);
+    }
+
+    /** Gross Sales of $shiftKey's "Individual TSA: Daily Target" column for
+     *  $date's month, on whichever data set is active (TSD, or Partners —
+     *  PartnerDailyTargetController). */
+    public static function targetForShiftKey(string $shiftKey, Carbon $date): ?float
+    {
         [, , $dailyKey] = ProjectionColumn::shiftRowKeys($shiftKey);
         $month = $date->format('Y-m');
 
