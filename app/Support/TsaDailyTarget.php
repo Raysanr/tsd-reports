@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\ProjectionColumn;
 use App\Models\TsaShift;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Daily Target countdown for one TSA (explicit request, 2026-11-27: "the TSA
@@ -25,6 +26,31 @@ use Illuminate\Support\Carbon;
  */
 class TsaDailyTarget
 {
+    public const CACHE_SECONDS = 30;
+
+    public static function cacheKey(TsaShift $tsa): string
+    {
+        return "tsa_daily_target.{$tsa->id}." . today()->toDateString();
+    }
+
+    /** for(), cached CACHE_SECONDS — the bubble's page-load/poll read. A
+     *  null (no target) is cached too, as ['none' => true]. */
+    public static function cachedFor(TsaShift $tsa): ?array
+    {
+        $value = Cache::remember(self::cacheKey($tsa), self::CACHE_SECONDS, fn () => self::for($tsa) ?? ['none' => true]);
+
+        return isset($value['none']) ? null : $value;
+    }
+
+    /** Fresh figures, written back to the cache (after an upsell). */
+    public static function refresh(TsaShift $tsa): ?array
+    {
+        $value = self::for($tsa);
+        Cache::put(self::cacheKey($tsa), $value ?? ['none' => true], self::CACHE_SECONDS);
+
+        return $value;
+    }
+
     /** null when this TSA has no Daily Target set for this month. */
     public static function for(TsaShift $tsa, ?Carbon $date = null): ?array
     {

@@ -118,4 +118,27 @@ class TsaDailyTargetTest extends TestCase
         $this->assertEqualsWithDelta(500, $t['over'], 0.01);
         $this->assertSame(100, $t['percent']);
     }
+
+    public function test_bubble_is_on_every_module_for_a_tsa_but_not_for_an_admin(): void
+    {
+        $tsa = $this->tsa('SH Naturals');
+        $tsaUser = $this->userFor($tsa);
+        $admin = User::create(['name' => 'Admin', 'email' => 'admin@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'admin']);
+
+        $this->actingAs($tsaUser)->get(route('calls.dashboard'))->assertOk()->assertSee('id="dailyTargetRoot"', false);
+        $this->actingAs($admin)->get(route('calls.dashboard'))->assertOk()->assertDontSee('id="dailyTargetRoot"', false);
+    }
+
+    public function test_an_upsell_refreshes_the_cached_figure_at_once(): void
+    {
+        $this->seedProjection();
+        $tsa = $this->tsa('SH Naturals');
+        $user = $this->userFor($tsa);
+        $this->actingAs($user)->getJson(route('calls.tsa-status.own-target'))->assertJsonPath('target.confirmed', 0);
+
+        $this->upsellOrder($tsa, 'o-c', 700);
+        TsaDailyTarget::refresh($tsa);
+
+        $this->actingAs($user)->getJson(route('calls.tsa-status.own-target'))->assertJsonPath('target.confirmed', 700);
+    }
 }

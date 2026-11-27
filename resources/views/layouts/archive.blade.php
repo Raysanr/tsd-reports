@@ -349,5 +349,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 @stack('scripts')
 @include('archive.partials.form-controls')
+@include('partials.daily-target-bubble')
 </body>
 </html>

@@ -164,7 +164,9 @@ class TsaStatusController extends Controller
         ]);
     }
 
-    /** The signed-in TSA's Daily Target countdown (topbar), see TsaDailyTarget.
+    /** The signed-in TSA's Daily Target bubble, see TsaDailyTarget. Cached 30s
+     *  per TSA (the bubble asks on every page load across every module);
+     *  addUpsell() overwrites the cache with fresh figures right away.
      *  {target: null} when no Daily Target is set for this month. */
     public function ownTarget()
     {
@@ -173,7 +175,7 @@ class TsaStatusController extends Controller
             abort(403);
         }
 
-        return response()->json(['target' => \App\Support\TsaDailyTarget::for($tsa)]);
+        return response()->json(['target' => \App\Support\TsaDailyTarget::cachedFor($tsa)]);
     }
 
     /**

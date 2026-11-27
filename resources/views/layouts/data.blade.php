@@ -531,5 +531,6 @@
 @if(auth()->user()->role === 'guest')
 @include('data._guest-read-only')
 @endif
+@include('partials.daily-target-bubble')
 </body>
 </html>

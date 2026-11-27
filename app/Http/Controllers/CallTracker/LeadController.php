@@ -1282,7 +1282,7 @@ class LeadController extends Controller
         }
 
         // Daily Target countdown (2026-11-27) — only for the lead's own TSA.
-        $target = ($lead->tsa && $user->tsa?->is($lead->tsa)) ? \App\Support\TsaDailyTarget::for($lead->tsa) : null;
+        $target = ($lead->tsa && $user->tsa?->is($lead->tsa)) ? \App\Support\TsaDailyTarget::refresh($lead->tsa) : null;
 
         return response()->json(array_filter([
             'success' => true,

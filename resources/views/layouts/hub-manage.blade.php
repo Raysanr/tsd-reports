@@ -201,5 +201,6 @@ document.addEventListener('DOMContentLoaded', function () {
 @endif
 
 @stack('scripts')
+@include('partials.daily-target-bubble')
 </body>
 </html>
